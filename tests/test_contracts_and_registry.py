@@ -1,3 +1,5 @@
+import pytest
+
 from contracts.models import ConversationTurn, SessionState
 from contracts.prompts import IntentExtractionResponse, parse_contract
 from validation.validators import (
@@ -49,3 +51,79 @@ def test_validators_normalize_values():
     assert validate_zip_code("94105") == (True, "94105")
     assert parse_numeric("$5,000.55") == 5000.55
     assert get_validator("zip_code")("94105") == (True, "94105")
+
+
+# --- DTMF flag guardrails (DEV-14) ---
+
+DTMF_COMPATIBLE_VALIDATORS = frozenset({
+    "account_number",
+    "verification_code",
+    "zip_code",
+    "order_number",
+    "phone",
+})
+
+DTMF_INCOMPATIBLE_VALIDATORS = frozenset({
+    "non_empty",
+    "date",
+    "currency",
+    "email",
+    "yes_no",
+    "profile_field",
+})
+
+
+def _all_fields():
+    """Yield (intent, field) for every field across all workflow schemas."""
+    for intent in list_intents():
+        workflow = get_workflow(intent)
+        for field in workflow.required_fields + workflow.optional_fields:
+            yield intent, field
+
+
+@pytest.mark.parametrize(
+    "intent,field",
+    [
+        pytest.param(intent, field, id=f"{intent}.{field.name}")
+        for intent, field in _all_fields()
+        if field.validator in DTMF_COMPATIBLE_VALIDATORS
+    ],
+)
+def test_dtmf_compatible_fields_have_flag_enabled(intent, field):
+    """Fields with numeric/ID validators must allow DTMF entry."""
+    assert field.dtmf_allowed is True, (
+        f"{intent}.{field.name} uses validator '{field.validator}' "
+        f"(DTMF-compatible) but has dtmf_allowed=False"
+    )
+
+
+@pytest.mark.parametrize(
+    "intent,field",
+    [
+        pytest.param(intent, field, id=f"{intent}.{field.name}")
+        for intent, field in _all_fields()
+        if field.validator in DTMF_INCOMPATIBLE_VALIDATORS
+    ],
+)
+def test_dtmf_incompatible_fields_have_flag_disabled(intent, field):
+    """Fields with text/date/currency validators must not allow DTMF entry."""
+    assert field.dtmf_allowed is False, (
+        f"{intent}.{field.name} uses validator '{field.validator}' "
+        f"(DTMF-incompatible) but has dtmf_allowed=True"
+    )
+
+
+def test_every_validator_is_classified():
+    """Every validator used in schemas must appear in one of the two DTMF sets.
+
+    Forces a conscious decision when a new validator type is introduced.
+    """
+    classified = DTMF_COMPATIBLE_VALIDATORS | DTMF_INCOMPATIBLE_VALIDATORS
+    unclassified = []
+    for intent, field in _all_fields():
+        if field.validator not in classified:
+            unclassified.append(f"{intent}.{field.name} ({field.validator})")
+    assert not unclassified, (
+        f"Unclassified validator(s) — add to DTMF_COMPATIBLE or "
+        f"DTMF_INCOMPATIBLE: {unclassified}"
+    )

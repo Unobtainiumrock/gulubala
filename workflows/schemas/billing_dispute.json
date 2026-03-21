@@ -14,7 +14,7 @@
       "type": "string",
       "prompt": "What date was the charge you're disputing?",
       "validator": "date",
-      "dtmf_allowed": true,
+      "dtmf_allowed": false,
       "document_extractable": true
     },
     {
@@ -22,7 +22,7 @@
       "type": "string",
       "prompt": "What was the amount of the charge?",
       "validator": "currency",
-      "dtmf_allowed": true,
+      "dtmf_allowed": false,
       "document_extractable": true
     },
     {
@@ -48,7 +48,7 @@
       "type": "string",
       "prompt": "If you have it, what reference number was listed with the charge?",
       "validator": "non_empty",
-      "dtmf_allowed": true,
+      "dtmf_allowed": false,
       "document_extractable": true
     }
   ],
