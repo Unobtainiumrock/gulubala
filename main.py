@@ -1,12 +1,14 @@
 """Entry point: wire the full call center pipeline together."""
 
 import argparse
-import sys
 
 from asr.transcribe import transcribe_file
-from intents.router import classify_intent
-from workflows.registry import get_workflow
-from dialogue.manager import DialogueState
+from services.orchestrator import CallCenterService
+from services.session_store import InMemorySessionStore
+
+
+def _build_cli_service() -> CallCenterService:
+    return CallCenterService(InMemorySessionStore())
 
 
 def run_audio_session(audio_path: str):
@@ -14,7 +16,7 @@ def run_audio_session(audio_path: str):
     print(f"[ASR] Transcribing {audio_path}...")
     transcript = transcribe_file(audio_path)
     print(f"[ASR] Transcript: {transcript}\n")
-    _run_dialogue(transcript)
+    _run_dialogue(transcript, channel="voice")
 
 
 def run_text_session():
@@ -25,39 +27,18 @@ def run_text_session():
     initial = input("Caller: ").strip()
     if not initial:
         return
-    _run_dialogue(initial)
+    _run_dialogue(initial, channel="text")
 
 
-def _run_dialogue(initial_utterance: str):
+def _run_dialogue(initial_utterance: str, channel: str):
     """Core dialogue loop shared by audio and text modes."""
-    # Step 1: Classify intent
-    print("[Intent] Classifying...")
-    intent_result = classify_intent(initial_utterance)
-    intent = intent_result["intent"]
-    confidence = intent_result.get("confidence", 0)
-    print(f"[Intent] {intent} (confidence: {confidence:.2f})")
+    service = _build_cli_service()
+    session = service.create_session(channel=channel)
+    result = service.handle_user_turn(session.session_id, initial_utterance)
+    print(f"Session: {session.session_id}")
+    print(f"Agent: {result['message']}\n")
 
-    if intent_result.get("escalate"):
-        print(f"[Escalate] {intent_result.get('reason', 'Low confidence or unsupported intent')}")
-        print("Transferring to human agent...")
-        return
-
-    # Step 2: Load workflow
-    workflow = get_workflow(intent)
-    if not workflow:
-        print(f"[Error] No workflow found for intent '{intent}'")
-        return
-
-    # Step 3: Initialize dialogue state
-    state = DialogueState(intent, workflow)
-    print(f"[Workflow] Loaded: {intent} — {len(workflow['required_fields'])} required fields\n")
-
-    # First turn: process the initial utterance (may contain field values)
-    response = state.next_turn(initial_utterance)
-    print(f"Agent: {response}\n")
-
-    # Step 4: Dialogue loop
-    while not state.resolved and not state.escalated:
+    while not result["resolved"] and not result["escalated"]:
         try:
             user_input = input("Caller: ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -68,18 +49,21 @@ def _run_dialogue(initial_utterance: str):
             print("[Session ended by caller]")
             break
 
-        response = state.next_turn(user_input)
-        print(f"Agent: {response}\n")
+        result = service.handle_user_turn(session.session_id, user_input)
+        print(f"Agent: {result['message']}\n")
 
     # Summary
+    final_state = service.get_session(session.session_id)
     print("\n--- Session Summary ---")
-    print(f"Intent: {state.intent}")
-    print(f"Turns: {state.turn_count}")
-    print(f"Fields collected: {state.collected_fields}")
-    print(f"Resolved: {state.resolved}")
-    print(f"Escalated: {state.escalated}")
-    if state.escalation_reason:
-        print(f"Escalation reason: {state.escalation_reason}")
+    print(f"Intent: {final_state.intent}")
+    print(f"Turns: {final_state.turn_count}")
+    print(f"Fields validated: {final_state.validated_fields}")
+    print(f"Resolved: {final_state.resolved}")
+    print(f"Escalated: {final_state.escalate}")
+    if final_state.escalation_reason:
+        print(f"Escalation reason: {final_state.escalation_reason}")
+    if final_state.action_result:
+        print(f"Action result: {final_state.action_result}")
 
 
 def main():

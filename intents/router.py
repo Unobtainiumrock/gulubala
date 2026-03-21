@@ -1,26 +1,12 @@
 """Layer 1: Intent Router — classify caller utterance into a workflow intent."""
 
-import json
 from client.eigen import chat_completion
-from config.models import HIGGS_CHAT_MODEL, INTENT_CONFIDENCE_THRESHOLD, DISAMBIGUATION_THRESHOLD
+from config.models import HIGGS_CHAT_MODEL, INTENT_CONFIDENCE_THRESHOLD
+from contracts.prompts import IntentExtractionResponse, build_intent_prompt, parse_contract
+from workflows.registry import list_intents
 
-SUPPORTED_INTENTS = [
-    "password_reset",
-    "billing_dispute",
-    "update_profile",
-    "order_status",
-    "cancel_service",
-]
-
-INTENT_SYSTEM_PROMPT = f"""You are an intent classifier for a call center. Given a caller's statement, classify it into exactly one of these intents:
-
-{json.dumps(SUPPORTED_INTENTS)}
-
-Respond with ONLY valid JSON in this format:
-{{"intent": "<intent_name>", "confidence": <0.0-1.0>, "needs_disambiguation": <true/false>, "reason": "<brief explanation>"}}
-
-If the caller's issue does not match any intent, use intent "unsupported".
-If multiple intents are plausible, set needs_disambiguation to true and pick the most likely one."""
+SUPPORTED_INTENTS = list_intents()
+INTENT_SYSTEM_PROMPT = build_intent_prompt(SUPPORTED_INTENTS)
 
 
 def classify_intent(transcript: str) -> dict:
@@ -42,8 +28,9 @@ def classify_intent(transcript: str) -> dict:
     )
 
     try:
-        result = json.loads(raw.strip())
-    except json.JSONDecodeError:
+        parsed = parse_contract(raw, IntentExtractionResponse)
+        result = parsed.model_dump()
+    except Exception:
         return {
             "intent": "unsupported",
             "confidence": 0.0,
@@ -57,11 +44,15 @@ def classify_intent(transcript: str) -> dict:
 
     result["escalate"] = (
         intent == "unsupported"
-        or confidence < DISAMBIGUATION_THRESHOLD
+        or confidence < INTENT_CONFIDENCE_THRESHOLD
     )
+    if result.get("needs_disambiguation"):
+        result["escalate"] = True
+        result["reason"] = result.get("reason") or "needs_disambiguation"
 
     if intent not in SUPPORTED_INTENTS and intent != "unsupported":
         result["intent"] = "unsupported"
         result["escalate"] = True
+        result["reason"] = result.get("reason") or "unsupported_intent"
 
     return result

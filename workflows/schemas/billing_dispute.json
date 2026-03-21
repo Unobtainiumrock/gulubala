@@ -5,32 +5,119 @@
       "name": "account_number",
       "type": "string",
       "prompt": "What is your account number?",
-      "validator": "account_number"
+      "validator": "account_number",
+      "dtmf_allowed": true,
+      "document_extractable": false
     },
     {
       "name": "charge_date",
       "type": "string",
       "prompt": "What date was the charge you're disputing?",
-      "validator": "date"
+      "validator": "date",
+      "dtmf_allowed": true,
+      "document_extractable": true
     },
     {
       "name": "charge_amount",
       "type": "string",
       "prompt": "What was the amount of the charge?",
-      "validator": "currency"
+      "validator": "currency",
+      "dtmf_allowed": true,
+      "document_extractable": true
     },
     {
       "name": "dispute_reason",
       "type": "string",
       "prompt": "Can you briefly describe why you're disputing this charge?",
-      "validator": "non_empty"
+      "validator": "non_empty",
+      "dtmf_allowed": false,
+      "document_extractable": false
     }
   ],
-  "optional_fields": ["merchant_name", "reference_number"],
+  "optional_fields": [
+    {
+      "name": "merchant_name",
+      "type": "string",
+      "prompt": "If you know it, what merchant name appeared on the statement?",
+      "validator": "non_empty",
+      "dtmf_allowed": false,
+      "document_extractable": true
+    },
+    {
+      "name": "reference_number",
+      "type": "string",
+      "prompt": "If you have it, what reference number was listed with the charge?",
+      "validator": "non_empty",
+      "dtmf_allowed": true,
+      "document_extractable": true
+    }
+  ],
+  "field_priority": [
+    "account_number",
+    "charge_date",
+    "charge_amount",
+    "dispute_reason",
+    "merchant_name",
+    "reference_number"
+  ],
   "validators": {
-    "account_number": "^[0-9]{8,12}$",
-    "charge_amount": "^\\$?[0-9]+(\\.[0-9]{2})?$"
+    "account_number": {
+      "type": "builtin",
+      "name": "account_number"
+    },
+    "charge_date": {
+      "type": "builtin",
+      "name": "date"
+    },
+    "charge_amount": {
+      "type": "builtin",
+      "name": "currency"
+    },
+    "dispute_reason": {
+      "type": "text"
+    },
+    "merchant_name": {
+      "type": "text"
+    },
+    "reference_number": {
+      "type": "text"
+    }
   },
-  "escalation_conditions": ["charge_amount_over_500", "user_requests_human"],
-  "action": "open_dispute_case"
+  "conditional_requirements": [],
+  "action": "open_dispute_case",
+  "escalation_conditions": [
+    {
+      "type": "numeric_threshold",
+      "reason": "high_value_dispute",
+      "field": "charge_amount",
+      "operator": ">",
+      "value": 5000
+    },
+    {
+      "type": "flag_equals",
+      "reason": "fraud_indicator",
+      "field": "fraud_indicator",
+      "operator": "==",
+      "value": true
+    },
+    {
+      "type": "document_mismatch",
+      "reason": "document_mismatch"
+    },
+    {
+      "type": "user_request_human",
+      "reason": "user_request_human"
+    },
+    {
+      "type": "backend_failure",
+      "reason": "backend_failure"
+    },
+    {
+      "type": "loop_stall",
+      "reason": "conversation_stalled",
+      "field": "turn_count",
+      "operator": ">=",
+      "value": 10
+    }
+  ]
 }

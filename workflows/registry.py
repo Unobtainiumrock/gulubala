@@ -1,10 +1,12 @@
-"""Layer 2: Workflow Registry — load and retrieve intent workflow schemas."""
+"""Layer 2: Workflow Registry — load and retrieve typed workflow schemas."""
 
 import json
 from pathlib import Path
 
+from contracts.models import WorkflowSchema
+
 _SCHEMA_DIR = Path(__file__).parent / "schemas"
-_workflows: dict[str, dict] = {}
+_workflows: dict[str, WorkflowSchema] = {}
 
 
 def _load_schemas():
@@ -12,11 +14,12 @@ def _load_schemas():
     global _workflows
     for schema_file in _SCHEMA_DIR.glob("*.json"):
         with open(schema_file) as f:
-            schema = json.load(f)
-        _workflows[schema["intent"]] = schema
+            raw_schema = json.load(f)
+        schema = WorkflowSchema.model_validate(raw_schema)
+        _workflows[schema.intent] = schema
 
 
-def get_workflow(intent: str) -> dict | None:
+def get_workflow(intent: str) -> WorkflowSchema | None:
     """Retrieve the workflow schema for a given intent."""
     if not _workflows:
         _load_schemas()

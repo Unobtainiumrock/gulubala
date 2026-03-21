@@ -5,25 +5,56 @@
       "name": "account_number",
       "type": "string",
       "prompt": "What is your account number?",
-      "validator": "account_number"
+      "validator": "account_number",
+      "dtmf_allowed": true,
+      "document_extractable": false
     },
     {
       "name": "field_to_update",
       "type": "string",
-      "prompt": "What would you like to update — your address, phone number, or email?",
-      "validator": "profile_field"
+      "prompt": "What would you like to update: your address, phone number, email, or name?",
+      "validator": "profile_field",
+      "dtmf_allowed": false,
+      "document_extractable": false
     },
     {
       "name": "new_value",
       "type": "string",
       "prompt": "What is the new value?",
-      "validator": "non_empty"
+      "validator": "non_empty",
+      "dtmf_allowed": false,
+      "document_extractable": false
     }
   ],
   "optional_fields": [],
+  "field_priority": [
+    "account_number",
+    "field_to_update",
+    "new_value"
+  ],
   "validators": {
-    "account_number": "^[0-9]{8,12}$"
+    "account_number": {
+      "type": "builtin",
+      "name": "account_number"
+    },
+    "field_to_update": {
+      "type": "builtin",
+      "name": "profile_field"
+    },
+    "new_value": {
+      "type": "text"
+    }
   },
-  "escalation_conditions": ["user_requests_human"],
-  "action": "update_profile"
+  "conditional_requirements": [],
+  "action": "update_profile",
+  "escalation_conditions": [
+    {
+      "type": "user_request_human",
+      "reason": "user_request_human"
+    },
+    {
+      "type": "backend_failure",
+      "reason": "backend_failure"
+    }
+  ]
 }
