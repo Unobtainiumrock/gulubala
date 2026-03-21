@@ -1,0 +1,36 @@
+{
+  "intent": "billing_dispute",
+  "required_fields": [
+    {
+      "name": "account_number",
+      "type": "string",
+      "prompt": "What is your account number?",
+      "validator": "account_number"
+    },
+    {
+      "name": "charge_date",
+      "type": "string",
+      "prompt": "What date was the charge you're disputing?",
+      "validator": "date"
+    },
+    {
+      "name": "charge_amount",
+      "type": "string",
+      "prompt": "What was the amount of the charge?",
+      "validator": "currency"
+    },
+    {
+      "name": "dispute_reason",
+      "type": "string",
+      "prompt": "Can you briefly describe why you're disputing this charge?",
+      "validator": "non_empty"
+    }
+  ],
+  "optional_fields": ["merchant_name", "reference_number"],
+  "validators": {
+    "account_number": "^[0-9]{8,12}$",
+    "charge_amount": "^\\$?[0-9]+(\\.[0-9]{2})?$"
+  },
+  "escalation_conditions": ["charge_amount_over_500", "user_requests_human"],
+  "action": "open_dispute_case"
+}

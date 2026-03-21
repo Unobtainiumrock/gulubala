@@ -1,0 +1,17 @@
+{
+  "intent": "order_status",
+  "required_fields": [
+    {
+      "name": "order_number",
+      "type": "string",
+      "prompt": "What is your order number?",
+      "validator": "order_number"
+    }
+  ],
+  "optional_fields": ["account_number", "email"],
+  "validators": {
+    "order_number": "^[A-Z0-9]{6,15}$"
+  },
+  "escalation_conditions": ["order_not_found", "user_requests_human"],
+  "action": "lookup_order_status"
+}

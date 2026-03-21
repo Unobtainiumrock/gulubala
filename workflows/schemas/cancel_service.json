@@ -1,0 +1,29 @@
+{
+  "intent": "cancel_service",
+  "required_fields": [
+    {
+      "name": "account_number",
+      "type": "string",
+      "prompt": "What is your account number?",
+      "validator": "account_number"
+    },
+    {
+      "name": "cancellation_reason",
+      "type": "string",
+      "prompt": "May I ask why you'd like to cancel?",
+      "validator": "non_empty"
+    },
+    {
+      "name": "confirm_cancel",
+      "type": "string",
+      "prompt": "Just to confirm — you'd like to cancel your service. Is that correct? Please say yes or no.",
+      "validator": "yes_no"
+    }
+  ],
+  "optional_fields": [],
+  "validators": {
+    "account_number": "^[0-9]{8,12}$"
+  },
+  "escalation_conditions": ["user_requests_human", "retention_eligible"],
+  "action": "cancel_subscription"
+}

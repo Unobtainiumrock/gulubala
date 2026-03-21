@@ -1,0 +1,29 @@
+{
+  "intent": "update_profile",
+  "required_fields": [
+    {
+      "name": "account_number",
+      "type": "string",
+      "prompt": "What is your account number?",
+      "validator": "account_number"
+    },
+    {
+      "name": "field_to_update",
+      "type": "string",
+      "prompt": "What would you like to update — your address, phone number, or email?",
+      "validator": "profile_field"
+    },
+    {
+      "name": "new_value",
+      "type": "string",
+      "prompt": "What is the new value?",
+      "validator": "non_empty"
+    }
+  ],
+  "optional_fields": [],
+  "validators": {
+    "account_number": "^[0-9]{8,12}$"
+  },
+  "escalation_conditions": ["user_requests_human"],
+  "action": "update_profile"
+}
