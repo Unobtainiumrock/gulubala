@@ -69,8 +69,8 @@ class CallCenterService:
         if not session.intent:
             result = {
                 "session_id": session.session_id,
-                "next_field": None,
-                "next_question": None,
+                "next_fields": [],
+                "next_questions": [],
                 "missing_required_fields": [],
                 "escalate": session.escalate,
                 "escalation_reason": session.escalation_reason,
@@ -236,32 +236,39 @@ class CallCenterService:
                 }
 
         workflow = self._require_workflow(session)
-        submission = self.engine.attempt_field_capture(session, workflow, utterance)
+        submissions = self.engine.attempt_multi_field_capture(session, workflow, utterance)
         self.store.save_session(session)
 
         if session.escalate:
             summary = self.build_escalation_summary(session.session_id)
             session = self.get_session(session.session_id)
             message = f"I’m handing this to a human agent. {summary['summary']}"
-        elif submission and not submission["accepted"]:
-            message = self.engine.build_retry_question(
-                workflow,
-                submission["field_name"],
-                submission["validation_error"] or "That information did not validate.",
-            )
         else:
-            plan = self.engine.plan_next_step(session, workflow)
-            self.store.save_session(session)
-            if not plan["missing_required_fields"]:
-                dispatch = self.dispatch_action(session.session_id)
-                session = self.get_session(session.session_id)
-                if dispatch["status"] == "completed":
-                    message = session.action_result or "Your request is complete."
-                else:
-                    summary = self.build_escalation_summary(session.session_id)
-                    message = f"I need to connect you with a human agent. {summary['summary']}"
+            # Collect validation failures to re-ask
+            failed = [s for s in submissions if not s["accepted"]]
+            if failed:
+                retry_parts = [
+                    self.engine.build_retry_question(
+                        workflow,
+                        s["field_name"],
+                        s["validation_error"] or "That information did not validate.",
+                    )
+                    for s in failed
+                ]
+                message = " ".join(retry_parts)
             else:
-                message = plan["next_question"] or "Please continue."
+                plan = self.engine.plan_next_step(session, workflow)
+                self.store.save_session(session)
+                if not plan["missing_required_fields"]:
+                    dispatch = self.dispatch_action(session.session_id)
+                    session = self.get_session(session.session_id)
+                    if dispatch["status"] == "completed":
+                        message = session.action_result or "Your request is complete."
+                    else:
+                        summary = self.build_escalation_summary(session.session_id)
+                        message = f"I need to connect you with a human agent. {summary['summary']}"
+                else:
+                    message = " ".join(plan["next_questions"]) if plan["next_questions"] else "Please continue."
 
         self.engine.register_assistant_turn(session, message)
         self.store.save_session(session)
@@ -283,7 +290,8 @@ class CallCenterService:
         if normalized.event_type == "dtmf":
             workflow = self._require_workflow(session)
             self.engine.synchronize_state(session, workflow)
-            current_field = workflow.get_field(session.current_field or "")
+            dtmf_field_name = session.current_fields[0] if session.current_fields else None
+            current_field = workflow.get_field(dtmf_field_name or "") if dtmf_field_name else None
             if current_field is None or not current_field.dtmf_allowed:
                 return {
                     "session_id": session.session_id,
@@ -295,7 +303,7 @@ class CallCenterService:
             session = self.get_session(session.session_id)
             if result["accepted"]:
                 plan = self.plan_next_step(session.session_id)
-                message = plan["next_question"] or "Thanks. I have that information."
+                message = " ".join(plan["next_questions"]) if plan["next_questions"] else "Thanks. I have that information."
             else:
                 message = self.engine.build_retry_question(
                     workflow,

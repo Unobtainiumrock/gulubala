@@ -22,6 +22,7 @@ DISAMBIGUATION_THRESHOLD = 0.5
 # Validation
 MAX_VALIDATION_RETRIES = 3
 MAX_TURNS_BEFORE_STALL = 8
+MULTI_FIELD_BATCH_SIZE = 3
 
 # Session and privacy settings
 SESSION_DB_PATH = os.environ.get("SESSION_DB_PATH", "call_center_sessions.sqlite3")

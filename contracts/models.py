@@ -157,8 +157,8 @@ class SessionState(BaseModel):
     collected_fields: dict[str, str] = Field(default_factory=dict)
     validated_fields: dict[str, str] = Field(default_factory=dict)
     missing_required_fields: list[str] = Field(default_factory=list)
-    current_field: str | None = None
-    last_question: str | None = None
+    current_fields: list[str] = Field(default_factory=list)
+    last_questions: list[str] = Field(default_factory=list)
     retry_counts: dict[str, int] = Field(default_factory=dict)
     escalate: bool = False
     escalation_reason: str | None = None

@@ -29,8 +29,8 @@ class PlanNextStepRequest(BaseModel):
 
 class PlanNextStepResponse(BaseModel):
     session_id: str
-    next_field: str | None = None
-    next_question: str | None = None
+    next_fields: list[str] = Field(default_factory=list)
+    next_questions: list[str] = Field(default_factory=list)
     missing_required_fields: list[str] = Field(default_factory=list)
     escalate: bool = False
     escalation_reason: str | None = None

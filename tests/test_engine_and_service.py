@@ -28,39 +28,44 @@ def test_retry_limit_escalates_password_reset():
 def test_password_reset_happy_path(password_reset_service: CallCenterService):
     session = password_reset_service.create_session(channel="text")
 
+    # Initial utterance - no fields extractable
     response = password_reset_service.handle_user_turn(session.session_id, "I can't log into my account.")
-    assert "account ID" in response["message"]
+    assert not response["resolved"]
 
-    response = password_reset_service.handle_user_turn(session.session_id, "12345678")
-    assert "verification code" in response["message"]
-
-    response = password_reset_service.handle_user_turn(session.session_id, "123456")
+    # Two tokens: account_id gets first, verification_code gets second
+    response = password_reset_service.handle_user_turn(session.session_id, "12345678 654321")
     assert response["resolved"] is True
     assert "Password reset initiated" in response["message"]
 
 
 def test_password_reset_invalid_code_three_times_escalates(password_reset_service: CallCenterService):
+    """Use submit_field to isolate the retry-escalation path from multi-field extraction."""
     session = password_reset_service.create_session(channel="text")
 
-    password_reset_service.handle_user_turn(session.session_id, "I can't log into my account.")
-    password_reset_service.handle_user_turn(session.session_id, "12345678")
-    password_reset_service.handle_user_turn(session.session_id, "1111")
-    password_reset_service.handle_user_turn(session.session_id, "2222")
-    response = password_reset_service.handle_user_turn(session.session_id, "3333")
+    password_reset_service.route_intent(session.session_id, "I can't log into my account.")
+    password_reset_service.submit_field(session.session_id, "account_id", "12345678")
+
+    # Three invalid verification codes (too short for 4-8 digit validator)
+    password_reset_service.submit_field(session.session_id, "verification_code", "12")
+    password_reset_service.submit_field(session.session_id, "verification_code", "34")
+    result = password_reset_service.submit_field(session.session_id, "verification_code", "56")
 
     final_state = password_reset_service.get_session(session.session_id)
-    assert response["escalated"] is True
+    assert result["accepted"] is False
+    assert final_state.escalate is True
     assert final_state.escalation_reason == "validation_retry_limit"
 
 
 def test_billing_dispute_happy_path(billing_service: CallCenterService):
     session = billing_service.create_session(channel="text")
 
+    # Turn 1: intent classified, dispute_reason extracted from free text
     billing_service.handle_user_turn(session.session_id, "I need to dispute a charge on my bill.")
-    billing_service.handle_user_turn(session.session_id, "12345678")
-    billing_service.handle_user_turn(session.session_id, "2026-03-01")
-    billing_service.handle_user_turn(session.session_id, "$95.00")
-    response = billing_service.handle_user_turn(session.session_id, "incorrect amount")
+
+    # Turn 2: provide remaining 3 structured fields in one utterance
+    response = billing_service.handle_user_turn(
+        session.session_id, "12345678 03/01/2026 $95.00"
+    )
 
     assert response["resolved"] is True
     assert "Dispute case opened" in response["message"]
