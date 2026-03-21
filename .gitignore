@@ -10,4 +10,6 @@ venv/
 *.wav
 *.flac
 *.ogg
+call_center_sessions.sqlite3
+.pytest_cache/
 .DS_Store

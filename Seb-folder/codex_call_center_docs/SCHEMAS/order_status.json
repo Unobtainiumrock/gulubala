@@ -1,0 +1,34 @@
+{
+  "intent": "order_status",
+  "required_fields": [
+    "order_number"
+  ],
+  "optional_fields": [
+    "zip_code",
+    "email"
+  ],
+  "field_priority": [
+    "order_number",
+    "zip_code",
+    "email"
+  ],
+  "validators": {
+    "order_number": {
+      "type": "regex",
+      "pattern": "^[A-Z0-9\\-]{6,20}$"
+    },
+    "zip_code": {
+      "type": "regex",
+      "pattern": "^[0-9]{5}$"
+    },
+    "email": {
+      "type": "email"
+    }
+  },
+  "conditional_requirements": [],
+  "action": "lookup_order_status",
+  "escalation_conditions": [
+    "order_not_found_after_fallback == true",
+    "user_requests_human == true"
+  ]
+}

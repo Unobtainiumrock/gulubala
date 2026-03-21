@@ -5,13 +5,65 @@
       "name": "order_number",
       "type": "string",
       "prompt": "What is your order number?",
-      "validator": "order_number"
+      "validator": "order_number",
+      "dtmf_allowed": true,
+      "document_extractable": false
     }
   ],
-  "optional_fields": ["account_number", "email"],
+  "optional_fields": [
+    {
+      "name": "zip_code",
+      "type": "string",
+      "prompt": "If you have it handy, what is the ZIP code on the order?",
+      "validator": "zip_code",
+      "dtmf_allowed": true,
+      "document_extractable": false
+    },
+    {
+      "name": "email",
+      "type": "string",
+      "prompt": "If needed, what email address was used on the order?",
+      "validator": "email",
+      "dtmf_allowed": false,
+      "document_extractable": false
+    }
+  ],
+  "field_priority": [
+    "order_number",
+    "zip_code",
+    "email"
+  ],
   "validators": {
-    "order_number": "^[A-Z0-9]{6,15}$"
+    "order_number": {
+      "type": "builtin",
+      "name": "order_number"
+    },
+    "zip_code": {
+      "type": "builtin",
+      "name": "zip_code"
+    },
+    "email": {
+      "type": "builtin",
+      "name": "email"
+    }
   },
-  "escalation_conditions": ["order_not_found", "user_requests_human"],
-  "action": "lookup_order_status"
+  "conditional_requirements": [],
+  "action": "lookup_order_status",
+  "escalation_conditions": [
+    {
+      "type": "flag_equals",
+      "reason": "order_not_found_after_fallback",
+      "field": "order_not_found_after_fallback",
+      "operator": "==",
+      "value": true
+    },
+    {
+      "type": "user_request_human",
+      "reason": "user_request_human"
+    },
+    {
+      "type": "backend_failure",
+      "reason": "backend_failure"
+    }
+  ]
 }

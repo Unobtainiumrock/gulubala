@@ -1,25 +1,50 @@
-"""Layer 4: Field validators — regex, type checks, and lookup stubs."""
+"""Layer 4: deterministic field validators and schema-driven validator lookup."""
+
+from __future__ import annotations
 
 import re
+from datetime import datetime
+from typing import Callable
+
+from contracts.models import ValidatorSpec
+
+ValidatorFn = Callable[[str], tuple[bool, str]]
+
+
+def parse_numeric(value: str | int | float | None) -> float | None:
+    """Normalize strings like '$49.99' into comparable numeric values."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    cleaned = str(value).strip().replace(",", "")
+    cleaned = cleaned.lstrip("$")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
 
 
 def validate_account_number(value: str) -> tuple[bool, str]:
-    if re.match(r"^[0-9]{8,12}$", value.strip()):
-        return True, value.strip()
+    cleaned = re.sub(r"[^\d]", "", value)
+    if re.fullmatch(r"\d{8,12}", cleaned):
+        return True, cleaned
     return False, "Account number should be 8 to 12 digits."
 
 
 def validate_verification_code(value: str) -> tuple[bool, str]:
-    if re.match(r"^[0-9]{4,8}$", value.strip()):
-        return True, value.strip()
-    return False, "Verification code should be 4 to 8 digits."
+    cleaned = re.sub(r"[^\d]", "", value)
+    if re.fullmatch(r"\d{6}", cleaned):
+        return True, cleaned
+    return False, "Verification code should be exactly 6 digits."
 
 
 def validate_order_number(value: str) -> tuple[bool, str]:
     cleaned = value.strip().upper()
-    if re.match(r"^[A-Z0-9]{6,15}$", cleaned):
+    if re.fullmatch(r"[A-Z0-9\-]{6,20}", cleaned):
         return True, cleaned
-    return False, "Order number should be 6 to 15 alphanumeric characters."
+    return False, "Order number should be 6 to 20 letters, numbers, or dashes."
 
 
 def validate_non_empty(value: str) -> tuple[bool, str]:
@@ -29,25 +54,37 @@ def validate_non_empty(value: str) -> tuple[bool, str]:
 
 
 def validate_currency(value: str) -> tuple[bool, str]:
-    cleaned = value.strip().lstrip("$")
-    if re.match(r"^[0-9]+(\.[0-9]{1,2})?$", cleaned):
-        return True, f"${cleaned}"
-    return False, "Please provide a valid dollar amount (e.g., $49.99)."
+    numeric = parse_numeric(value)
+    if numeric is not None:
+        return True, f"${numeric:.2f}"
+    return False, "Please provide a valid dollar amount, such as $49.99."
 
 
 def validate_date(value: str) -> tuple[bool, str]:
-    # Accept common date formats loosely
     cleaned = value.strip()
-    if re.match(r"^\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}$", cleaned):
-        return True, cleaned
-    if re.match(r"^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2},?\s*\d{2,4}$", cleaned, re.IGNORECASE):
-        return True, cleaned
-    return False, "Please provide a date like MM/DD/YYYY or March 15, 2026."
+    formats = [
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%m-%d-%Y",
+        "%m-%d-%y",
+        "%Y-%m-%d",
+        "%b %d %Y",
+        "%B %d %Y",
+        "%b %d, %Y",
+        "%B %d, %Y",
+    ]
+    for fmt in formats:
+        try:
+            normalized = datetime.strptime(cleaned, fmt).date().isoformat()
+            return True, normalized
+        except ValueError:
+            continue
+    return False, "Please provide a date like 03/15/2026 or March 15, 2026."
 
 
 def validate_email(value: str) -> tuple[bool, str]:
     cleaned = value.strip().lower()
-    if re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", cleaned):
+    if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", cleaned):
         return True, cleaned
     return False, "Please provide a valid email address."
 
@@ -73,11 +110,39 @@ def validate_profile_field(value: str) -> tuple[bool, str]:
     for field in ("address", "phone", "email", "name"):
         if field in cleaned:
             return True, field
-    return False, "Please specify: address, phone number, or email."
+    return False, "Please specify address, phone, email, or name."
 
 
-# Validator registry
-_VALIDATORS = {
+def validate_zip_code(value: str) -> tuple[bool, str]:
+    cleaned = re.sub(r"[^\d]", "", value)
+    if re.fullmatch(r"\d{5}", cleaned):
+        return True, cleaned
+    return False, "Please provide a 5-digit ZIP code."
+
+
+def _regex_validator(pattern: str, error_message: str) -> ValidatorFn:
+    def validate(value: str) -> tuple[bool, str]:
+        cleaned = value.strip()
+        if re.fullmatch(pattern, cleaned):
+            return True, cleaned
+        return False, error_message
+
+    return validate
+
+
+def _enum_validator(values: list[str]) -> ValidatorFn:
+    valid_values = {item.lower(): item for item in values}
+
+    def validate(value: str) -> tuple[bool, str]:
+        cleaned = value.strip().lower()
+        if cleaned in valid_values:
+            return True, valid_values[cleaned]
+        return False, f"Please provide one of: {', '.join(values)}."
+
+    return validate
+
+
+_VALIDATORS: dict[str, ValidatorFn] = {
     "account_number": validate_account_number,
     "verification_code": validate_verification_code,
     "order_number": validate_order_number,
@@ -88,9 +153,35 @@ _VALIDATORS = {
     "phone": validate_phone,
     "yes_no": validate_yes_no,
     "profile_field": validate_profile_field,
+    "zip_code": validate_zip_code,
 }
 
 
-def get_validator(name: str):
-    """Look up a validator function by name."""
-    return _VALIDATORS.get(name, validate_non_empty)
+def get_validator(name: str, spec: ValidatorSpec | None = None) -> ValidatorFn:
+    """Look up a validator function by name or a schema-level validator spec."""
+    if name in _VALIDATORS:
+        return _VALIDATORS[name]
+
+    if spec is None:
+        return validate_non_empty
+
+    if spec.type == "regex" and spec.pattern:
+        return _regex_validator(spec.pattern, "That value does not match the expected format.")
+    if spec.type == "enum" and spec.values:
+        return _enum_validator(spec.values)
+    if spec.type == "builtin" and spec.name:
+        return _VALIDATORS.get(spec.name, validate_non_empty)
+    if spec.type in {"text", "enum_text"}:
+        return validate_non_empty
+    if spec.type == "currency":
+        return validate_currency
+    if spec.type == "date":
+        return validate_date
+    if spec.type == "email":
+        return validate_email
+    if spec.type == "phone":
+        return validate_phone
+    if spec.type == "yes_no":
+        return validate_yes_no
+
+    return validate_non_empty
