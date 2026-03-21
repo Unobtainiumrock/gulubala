@@ -1,36 +1,18 @@
-"""Stage 1: Audio → text transcription via Higgs ASR 3."""
+"""Stage 1: Audio -> text transcription via Higgs ASR 3.
 
-from client.eigen import chat_completion
-from config.models import HIGGS_ASR_MODEL
+Uses the Eigen multipart ``/generate`` endpoint (not chat completions).
+"""
 
+from __future__ import annotations
 
-def _build_audio_messages(chunks: list[str], system_prompt: str) -> list:
-    """Build OpenAI-compatible messages with indexed audio chunks."""
-    content_parts = []
-    for i, chunk in enumerate(chunks):
-        content_parts.append({
-            "type": "input_audio",
-            "input_audio": {
-                "data": chunk,
-                "format": f"audio/wav_{i}",
-            },
-        })
-
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": content_parts},
-    ]
-
-
-ASR_SYSTEM_PROMPT = (
-    "You are a speech-to-text transcription engine. "
-    "Transcribe the caller's speech exactly as spoken. "
-    "Output only the transcription text, nothing else."
-)
+from client.eigen import asr_generate, decode_b64_audio
 
 
 def transcribe(chunks: list[str]) -> str:
     """Transcribe audio chunks to text using Higgs ASR 3.
+
+    Each chunk is sent as a separate multipart request; the results are
+    concatenated with spaces.
 
     Args:
         chunks: List of base64-encoded WAV strings from audio.ingest.
@@ -38,14 +20,13 @@ def transcribe(chunks: list[str]) -> str:
     Returns:
         Plain text transcription.
     """
-    messages = _build_audio_messages(chunks, ASR_SYSTEM_PROMPT)
-    return chat_completion(
-        model=HIGGS_ASR_MODEL,
-        messages=messages,
-        temperature=0.2,
-        top_p=0.9,
-        max_tokens=2048,
-    )
+    parts: list[str] = []
+    for i, b64_chunk in enumerate(chunks):
+        audio_bytes = decode_b64_audio(b64_chunk)
+        text = asr_generate(audio_bytes, filename=f"chunk_{i}.wav")
+        if text and text.strip():
+            parts.append(text.strip())
+    return " ".join(parts)
 
 
 def transcribe_file(path: str) -> str:

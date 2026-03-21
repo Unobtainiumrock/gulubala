@@ -3,13 +3,14 @@
 import os
 
 # Eigen AI model identifiers
-HIGGS_ASR_MODEL = "higgs-audio-understanding-v3-Hackathon"
-HIGGS_CHAT_MODEL = "higgs-2.5"
+HIGGS_ASR_MODEL = "higgs_asr_3"
+HIGGS_CHAT_MODEL = "gpt-oss-120b"
 GPT_OSS_MODEL = "gpt-oss-120b"
 
-# Non-modifiable API parameters (from hackathon spec)
+# Non-modifiable API parameters
 STOP_SEQUENCES = ["<|eot_id|>", "<|endoftext|>", "<|audio_eos|>", "<|im_end|>"]
-EXTRA_BODY = {"skip_special_tokens": False}
+REASONING_EFFORT = "medium"
+EXTRA_BODY = {"skip_special_tokens": False, "reasoning_effort": REASONING_EFFORT}
 
 # Audio processing constants
 MAX_CHUNK_SECONDS = 4
