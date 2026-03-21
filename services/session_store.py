@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
@@ -49,6 +50,7 @@ class SQLiteSessionStore:
 
     def __init__(self, path: str):
         self.path = path
+        self._lock = threading.Lock()
         db_path = Path(path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(path, check_same_thread=False)
@@ -68,26 +70,28 @@ class SQLiteSessionStore:
         return self.save_session(session)
 
     def get_session(self, session_id: str) -> SessionState | None:
-        cursor = self._conn.execute(
-            "SELECT state_json FROM sessions WHERE session_id = ?",
-            (session_id,),
-        )
-        row = cursor.fetchone()
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT state_json FROM sessions WHERE session_id = ?",
+                (session_id,),
+            )
+            row = cursor.fetchone()
         if row is None:
             return None
         return SessionState.model_validate_json(row[0])
 
     def save_session(self, session: SessionState) -> SessionState:
         timestamp = datetime.now(timezone.utc).isoformat()
-        self._conn.execute(
-            """
-            INSERT INTO sessions (session_id, state_json, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(session_id) DO UPDATE SET
-              state_json = excluded.state_json,
-              updated_at = excluded.updated_at
-            """,
-            (session.session_id, session.model_dump_json(), timestamp),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO sessions (session_id, state_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                  state_json = excluded.state_json,
+                  updated_at = excluded.updated_at
+                """,
+                (session.session_id, session.model_dump_json(), timestamp),
+            )
+            self._conn.commit()
         return session

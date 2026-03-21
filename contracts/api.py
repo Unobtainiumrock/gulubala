@@ -6,8 +6,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from contracts.models import SessionState
-
 
 class RouteIntentRequest(BaseModel):
     session_id: str
@@ -118,7 +116,3 @@ class SubmitDocumentResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-
-
-class SessionResponse(BaseModel):
-    session: SessionState
