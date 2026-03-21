@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import base64
+from typing import Any
+
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is absent
     FastAPI = None
     HTTPException = RuntimeError
+    UploadFile = Any
+    File = None
+    Form = None
 
 from config.models import SESSION_DB_PATH
 from contracts.api import (
@@ -14,6 +20,7 @@ from contracts.api import (
     DispatchActionResponse,
     EscalationSummaryRequest,
     EscalationSummaryResponse,
+    HealthResponse,
     PlanNextStepRequest,
     PlanNextStepResponse,
     RouteIntentRequest,
@@ -43,6 +50,10 @@ def create_app():
         raise ModuleNotFoundError("FastAPI is not installed. Install requirements to run the HTTP API.")
 
     app = FastAPI(title="LLM Call Center Agent", version="0.1.0")
+
+    @app.get("/health", response_model=HealthResponse)
+    def health():
+        return HealthResponse(status="ok")
 
     @app.post("/route-intent", response_model=RouteIntentResponse)
     def route_intent(request: RouteIntentRequest):
@@ -99,6 +110,14 @@ def create_app():
         try:
             service = get_service()
             payload = request.model_dump(exclude_none=True)
+            if request.audio_data is not None and request.type in {"transcript", "user_transcript"}:
+                from asr.transcribe import transcribe
+                chunks = [request.audio_data]
+                transcript = transcribe(chunks)
+                payload["text"] = transcript
+                payload.pop("audio_data", None)
+            else:
+                payload.pop("audio_data", None)
             result = service.handle_voice_event(payload)
             return VoiceEventResponse.model_validate(result)
         except ValueError as exc:
