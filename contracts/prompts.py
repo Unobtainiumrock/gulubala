@@ -23,11 +23,6 @@ class FieldExtractionResponse(BaseModel):
     value: str | None = None
 
 
-class ValidationRepairResponse(BaseModel):
-    retry_field: str
-    retry_question: str
-
-
 class MultiFieldExtractionResponse(BaseModel):
     fields: dict[str, str | None]
 
@@ -74,15 +69,6 @@ def build_field_extraction_prompt(field_name: str, field_type: str) -> str:
         f"Extract the value for field '{field_name}' with type '{field_type}'.\n"
         "Return JSON with keys: found, value.\n"
         "If no value is present, return {\"found\": false, \"value\": null}."
-    )
-
-
-def build_validation_repair_prompt(field_name: str, validation_error: str) -> str:
-    return (
-        f"[prompt_contract={PROMPT_VERSION}:validation_repair]\n"
-        f"Retry field: {field_name}\n"
-        f"Validation error: {validation_error}\n"
-        "Return JSON with keys: retry_field, retry_question."
     )
 
 

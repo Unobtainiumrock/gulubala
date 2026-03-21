@@ -199,7 +199,7 @@ class WorkflowEngine:
             state.validated_fields[field_name] = result
             state.retry_counts.pop(field_name, None)
             state.metadata["last_input_source"] = source
-            if field_name in {"charge_date", "charge_amount"}:
+            if field is not None and field.document_extractable:
                 state.metadata["document_mismatch"] = False
                 state.metadata.pop("document_mismatch_fields", None)
             self.synchronize_state(state, workflow)

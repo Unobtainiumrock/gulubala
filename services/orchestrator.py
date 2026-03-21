@@ -222,7 +222,7 @@ class CallCenterService:
             workflow = get_workflow(session.intent) if session.intent else None
             if workflow is not None:
                 self.engine.evaluate_escalation(session, workflow)
-            else:
+            if not session.escalate:
                 session.escalate = True
                 session.escalation_reason = "user_request_human"
             self.store.save_session(session)
