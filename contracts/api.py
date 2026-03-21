@@ -122,3 +122,49 @@ class HealthResponse(BaseModel):
 
 class SessionResponse(BaseModel):
     session: SessionState
+
+
+class DemoScenarioResponse(BaseModel):
+    id: str
+    title: str
+    intent: str
+    tagline: str
+    summary: str
+    opening_message: str
+    seed_script: list[dict[str, str]] = Field(default_factory=list)
+    demo_goal: str
+
+
+class DemoStartRequest(BaseModel):
+    scenario_id: str
+    channel: str = "voice"
+
+
+class DemoStartResponse(BaseModel):
+    session_id: str
+    scenario: DemoScenarioResponse
+    message: str
+    docs_url: str = "/docs"
+
+
+class DemoTurnRequest(BaseModel):
+    session_id: str
+    utterance: str
+
+
+class DemoVoiceTurnRequest(BaseModel):
+    session_id: str
+    audio_base64: str
+    filename: str = "recording.webm"
+    content_type: str = "audio/webm"
+    language: str = "English"
+
+
+class DemoTurnResponse(BaseModel):
+    session_id: str
+    transcript: str | None = None
+    message: str
+    resolved: bool
+    escalated: bool
+    scenario_id: str | None = None
+    action_result: str | None = None

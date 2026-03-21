@@ -13,9 +13,14 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is a
     UploadFile = Any
     File = None
     Form = None
-
 from config.models import SESSION_DB_PATH
 from contracts.api import (
+    DemoScenarioResponse,
+    DemoStartRequest,
+    DemoStartResponse,
+    DemoTurnRequest,
+    DemoTurnResponse,
+    DemoVoiceTurnRequest,
     DispatchActionRequest,
     DispatchActionResponse,
     EscalationSummaryRequest,
@@ -54,6 +59,45 @@ def create_app():
     @app.get("/health", response_model=HealthResponse)
     def health():
         return HealthResponse(status="ok")
+
+    @app.get("/demo/scenarios", response_model=list[DemoScenarioResponse])
+    def demo_scenarios():
+        service = get_service()
+        payload = service.list_demo_scenarios()
+        return [DemoScenarioResponse.model_validate(item) for item in payload]
+
+    @app.post("/demo/start", response_model=DemoStartResponse)
+    def demo_start(request: DemoStartRequest):
+        try:
+            service = get_service()
+            payload = service.start_demo_session(request.scenario_id, channel=request.channel)
+            return DemoStartResponse.model_validate(payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/demo/turn", response_model=DemoTurnResponse)
+    def demo_turn(request: DemoTurnRequest):
+        try:
+            service = get_service()
+            payload = service.handle_demo_turn(request.session_id, request.utterance)
+            return DemoTurnResponse.model_validate(payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/demo/voice-turn", response_model=DemoTurnResponse)
+    def demo_voice_turn(request: DemoVoiceTurnRequest):
+        try:
+            service = get_service()
+            payload = service.handle_demo_voice_turn(
+                request.session_id,
+                request.audio_base64,
+                filename=request.filename,
+                content_type=request.content_type,
+                language=request.language,
+            )
+            return DemoTurnResponse.model_validate(payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/route-intent", response_model=RouteIntentResponse)
     def route_intent(request: RouteIntentRequest):

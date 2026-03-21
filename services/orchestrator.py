@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from actions.backend import execute_action
+from asr.transcribe import transcribe_bytes
 from boson.adapter import BosonAdapter
+from demo.scenarios import get_demo_scenario, list_demo_scenarios
 from dialogue.manager import WorkflowEngine
 from documents.eigen_adapter import EigenDocumentAdapter
 from intents.router import classify_intent
@@ -39,6 +42,26 @@ class CallCenterService:
         if session is None:
             raise KeyError(f"Unknown session_id '{session_id}'")
         return session
+
+    def list_demo_scenarios(self) -> list[dict[str, Any]]:
+        return list_demo_scenarios()
+
+    def start_demo_session(self, scenario_id: str, channel: str = "voice") -> dict[str, Any]:
+        scenario = get_demo_scenario(scenario_id)
+        session = self.create_session(channel=channel)
+        session.intent = scenario["intent"]
+        session.metadata["demo_scenario"] = scenario_id
+        workflow = self._require_workflow(session)
+        self.engine.synchronize_state(session, workflow)
+        opening_message = scenario["opening_message"]
+        self.engine.register_assistant_turn(session, opening_message)
+        self.store.save_session(session)
+        log_event("demo_session_started", session, scenario=scenario_id)
+        return {
+            "session_id": session.session_id,
+            "scenario": scenario,
+            "message": opening_message,
+        }
 
     def route_intent(self, session_id: str, utterance: str) -> dict[str, Any]:
         session = self._get_or_create_session(session_id, channel="api")
@@ -205,7 +228,10 @@ class CallCenterService:
             self.store.save_session(session)
             summary = self.build_escalation_summary(session.session_id)
             session = self.get_session(session.session_id)
-            message = f"I understand. Let me connect you with a human agent. {summary['summary']}"
+            message = (
+                f"Of course. I will connect you with a human specialist and pass along a concise summary. "
+                f"{summary['summary']}"
+            )
             self.engine.register_assistant_turn(session, message)
             self.store.save_session(session)
             log_event("conversation_turn", session, message=message)
@@ -222,7 +248,7 @@ class CallCenterService:
             if route.get("escalate"):
                 summary = self.build_escalation_summary(session.session_id)
                 message = (
-                    "I need to connect you with a human agent so we can handle this correctly. "
+                    "I am going to connect you with a human specialist so this is handled correctly. "
                     f"{summary['summary']}"
                 )
                 self.engine.register_assistant_turn(session, message)
@@ -242,9 +268,8 @@ class CallCenterService:
         if session.escalate:
             summary = self.build_escalation_summary(session.session_id)
             session = self.get_session(session.session_id)
-            message = f"I’m handing this to a human agent. {summary['summary']}"
+            message = f"I am handing this over to a human specialist. {summary['summary']}"
         else:
-            # Collect validation failures to re-ask
             failed = [s for s in submissions if not s["accepted"]]
             if failed:
                 retry_parts = [
@@ -266,7 +291,7 @@ class CallCenterService:
                         message = session.action_result or "Your request is complete."
                     else:
                         summary = self.build_escalation_summary(session.session_id)
-                        message = f"I need to connect you with a human agent. {summary['summary']}"
+                        message = f"I need to connect you with a human specialist. {summary['summary']}"
                 else:
                     message = " ".join(plan["next_questions"]) if plan["next_questions"] else "Please continue."
 
@@ -278,6 +303,36 @@ class CallCenterService:
             "message": message,
             "resolved": session.resolved,
             "escalated": session.escalate,
+        }
+
+    def handle_demo_turn(self, session_id: str, utterance: str) -> dict[str, Any]:
+        result = self.handle_user_turn(session_id, utterance)
+        session = self.get_session(session_id)
+        return {
+            **result,
+            "scenario_id": session.metadata.get("demo_scenario"),
+            "action_result": session.action_result,
+        }
+
+    def handle_demo_voice_turn(
+        self,
+        session_id: str,
+        audio_base64: str,
+        filename: str = "recording.webm",
+        content_type: str = "audio/webm",
+        language: str = "English",
+    ) -> dict[str, Any]:
+        file_bytes = base64.b64decode(audio_base64)
+        transcript = transcribe_bytes(
+            file_bytes=file_bytes,
+            filename=filename,
+            content_type=content_type,
+            language=language,
+        )
+        result = self.handle_demo_turn(session_id, transcript)
+        return {
+            **result,
+            "transcript": transcript,
         }
 
     def handle_voice_event(self, event: dict[str, Any]) -> dict[str, Any]:

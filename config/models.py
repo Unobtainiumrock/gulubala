@@ -2,10 +2,19 @@
 
 import os
 
+# Eigen API endpoints
+EIGEN_BASE_URL = os.environ.get("EIGEN_BASE_URL", "https://api-web.eigenai.com/api/v1")
+EIGEN_GENERATE_URL = os.environ.get("EIGEN_GENERATE_URL", f"{EIGEN_BASE_URL.rstrip('/')}/generate")
+
 # Eigen AI model identifiers
-HIGGS_ASR_MODEL = "higgs-audio-understanding-v3-Hackathon"
-HIGGS_CHAT_MODEL = "higgs-2.5"
-GPT_OSS_MODEL = "gpt-oss-120b"
+# Defaults are aligned to the currently available free-tier models.
+HIGGS_ASR_MODEL = os.environ.get("HIGGS_ASR_MODEL", "higgs_asr_3")
+GPT_OSS_MODEL = os.environ.get("GPT_OSS_MODEL", "gpt-oss-120b")
+HIGGS_TTS_MODEL = os.environ.get("HIGGS_TTS_MODEL", "higgs2p5")
+
+# Keep the existing name used throughout the app, but route chat/orchestration
+# through GPT-OSS by default so the app no longer depends on higgs-2.5 access.
+HIGGS_CHAT_MODEL = os.environ.get("HIGGS_CHAT_MODEL", GPT_OSS_MODEL)
 
 # Non-modifiable API parameters (from hackathon spec)
 STOP_SEQUENCES = ["<|eot_id|>", "<|endoftext|>", "<|audio_eos|>", "<|im_end|>"]
@@ -14,6 +23,7 @@ EXTRA_BODY = {"skip_special_tokens": False}
 # Audio processing constants
 MAX_CHUNK_SECONDS = 4
 SAMPLE_RATE = 16000
+ASR_LANGUAGE = os.environ.get("ASR_LANGUAGE", "English")
 
 # Intent detection
 INTENT_CONFIDENCE_THRESHOLD = 0.7
@@ -36,3 +46,7 @@ REDACT_FIELD_HINTS = (
     "order",
     "zip",
 )
+
+# Demo branding
+DEMO_BRAND_NAME = os.environ.get("DEMO_BRAND_NAME", "Callit-Dev")
+DEMO_TTS_VOICE = os.environ.get("DEMO_TTS_VOICE", "Linda")

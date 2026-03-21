@@ -25,6 +25,20 @@ def test_retry_limit_escalates_password_reset():
     assert session.escalation_reason == "validation_retry_limit"
 
 
+def test_default_engine_accepts_spoken_digit_account_id():
+    engine = WorkflowEngine(field_extractor=lambda field, utterance: None, summary_builder=lambda payload: "summary")
+    workflow = get_workflow("password_reset")
+    session = InMemorySessionStore().create_session(channel="voice")
+    session.intent = "password_reset"
+    engine.synchronize_state(session, workflow)
+
+    result = engine.attempt_field_capture(session, workflow, "my account ID is one two three four five six seven eight")
+
+    assert result is not None
+    assert result["accepted"] is True
+    assert session.validated_fields["account_id"] == "12345678"
+
+
 def test_password_reset_happy_path(password_reset_service: CallCenterService):
     session = password_reset_service.create_session(channel="text")
 
@@ -35,7 +49,7 @@ def test_password_reset_happy_path(password_reset_service: CallCenterService):
     # Two tokens: account_id gets first, verification_code gets second
     response = password_reset_service.handle_user_turn(session.session_id, "12345678 654321")
     assert response["resolved"] is True
-    assert "Password reset initiated" in response["message"]
+    assert "password reset" in response["message"]
 
 
 def test_password_reset_invalid_code_three_times_escalates(password_reset_service: CallCenterService):
@@ -68,7 +82,7 @@ def test_billing_dispute_happy_path(billing_service: CallCenterService):
     )
 
     assert response["resolved"] is True
-    assert "Dispute case opened" in response["message"]
+    assert "dispute" in response["message"].lower()
 
 
 def test_billing_document_mismatch_escalates(billing_service: CallCenterService):
@@ -116,12 +130,12 @@ def test_backend_failure_propagates_to_escalation(monkeypatch: pytest.MonkeyPatc
         (
             "update_profile",
             [("account_number", "12345678"), ("field_to_update", "email"), ("new_value", "new@example.com")],
-            "Profile updated",
+            "profile has been updated",
         ),
         (
             "cancel_service",
             [("account_number", "12345678"), ("cancellation_reason", "moving"), ("confirm_cancel", "yes")],
-            "Service cancelled",
+            "cancelled successfully",
         ),
     ],
 )

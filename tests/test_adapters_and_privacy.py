@@ -27,7 +27,7 @@ def test_asr_confusion_reasks_same_field(monkeypatch: pytest.MonkeyPatch):
     service.handle_user_turn(session.session_id, "I cannot log in.")
     response = service.handle_user_turn(session.session_id, "static noise only")
 
-    assert "account ID" in response["message"]
+    assert "account number" in response["message"]
 
 
 def test_dtmf_event_submits_numeric_field(monkeypatch: pytest.MonkeyPatch):
@@ -125,6 +125,80 @@ def test_api_smoke_flow(monkeypatch: pytest.MonkeyPatch):
     dispatch = client.post("/dispatch-action", json={"session_id": "api-session"})
     assert dispatch.status_code == 200
     assert dispatch.json()["status"] == "completed"
+
+
+def test_demo_routes_expose_scenarios_without_landing_page(monkeypatch: pytest.MonkeyPatch):
+    if FastAPI is None:  # pragma: no cover
+        pytest.skip("FastAPI not installed")
+
+    from fastapi.testclient import TestClient
+
+    service = make_service(monkeypatch, "password_reset")
+    api_app._SERVICE = service
+    client = TestClient(create_app())
+
+    root = client.get("/")
+    assert root.status_code == 404
+
+    scenarios = client.get("/demo/scenarios")
+    assert scenarios.status_code == 200
+    scenario_ids = {item["id"] for item in scenarios.json()}
+    assert {"password_reset", "cancel_service"} <= scenario_ids
+
+
+def test_demo_guided_flow(monkeypatch: pytest.MonkeyPatch):
+    if FastAPI is None:  # pragma: no cover
+        pytest.skip("FastAPI not installed")
+
+    from fastapi.testclient import TestClient
+
+    service = make_service(monkeypatch, "password_reset")
+    api_app._SERVICE = service
+    client = TestClient(create_app())
+
+    start = client.post("/demo/start", json={"scenario_id": "password_reset", "channel": "voice"})
+    assert start.status_code == 200
+    payload = start.json()
+    assert payload["scenario"]["intent"] == "password_reset"
+    assert "Callit-Dev" in payload["message"]
+
+    session_id = payload["session_id"]
+    turn_one = client.post("/demo/turn", json={"session_id": session_id, "utterance": "12345678"})
+    assert turn_one.status_code == 200
+    assert "verification code" in turn_one.json()["message"]
+
+    turn_two = client.post("/demo/turn", json={"session_id": session_id, "utterance": "123456"})
+    assert turn_two.status_code == 200
+    assert turn_two.json()["resolved"] is True
+
+
+def test_demo_voice_turn(monkeypatch: pytest.MonkeyPatch):
+    if FastAPI is None:  # pragma: no cover
+        pytest.skip("FastAPI not installed")
+
+    from base64 import b64encode
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr("services.orchestrator.transcribe_bytes", lambda **kwargs: "12345678")
+
+    service = make_service(monkeypatch, "password_reset")
+    api_app._SERVICE = service
+    client = TestClient(create_app())
+
+    start = client.post("/demo/start", json={"scenario_id": "password_reset", "channel": "voice"})
+    session_id = start.json()["session_id"]
+
+    voice_turn = client.post(
+        "/demo/voice-turn",
+        json={
+            "session_id": session_id,
+            "audio_base64": b64encode(b"demo-bytes").decode("ascii"),
+            "filename": "demo.webm",
+            "content_type": "audio/webm",
+        },
+    )
+    assert voice_turn.status_code == 200
+    assert voice_turn.json()["transcript"] == "12345678"
 
 
 def test_document_adapter_extracts_supported_fields():

@@ -1,55 +1,84 @@
-"""Stage 1: Audio → text transcription via Higgs ASR 3."""
+"""Stage 1: Audio transcription via Eigen generate endpoint."""
 
-from client.eigen import chat_completion
-from config.models import HIGGS_ASR_MODEL
+from __future__ import annotations
 
+import base64
+import json
+import mimetypes
+from pathlib import Path
+from typing import Any
 
-def _build_audio_messages(chunks: list[str], system_prompt: str) -> list:
-    """Build OpenAI-compatible messages with indexed audio chunks."""
-    content_parts = []
-    for i, chunk in enumerate(chunks):
-        content_parts.append({
-            "type": "input_audio",
-            "input_audio": {
-                "data": chunk,
-                "format": f"audio/wav_{i}",
-            },
-        })
-
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": content_parts},
-    ]
+from client.eigen import generate_file
+from config.models import ASR_LANGUAGE, HIGGS_ASR_MODEL
 
 
-ASR_SYSTEM_PROMPT = (
-    "You are a speech-to-text transcription engine. "
-    "Transcribe the caller's speech exactly as spoken. "
-    "Output only the transcription text, nothing else."
-)
+def _extract_text(payload: Any) -> str:
+    if isinstance(payload, str):
+        return payload.strip()
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Unsupported ASR response type: {type(payload).__name__}")
+
+    for key in ("text", "transcript", "output", "response"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    data = payload.get("data")
+    if isinstance(data, dict):
+        for key in ("text", "transcript", "output"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    predictions = payload.get("predictions")
+    if isinstance(predictions, list) and predictions:
+        first = predictions[0]
+        if isinstance(first, dict):
+            for key in ("text", "transcript", "output"):
+                value = first.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+    raise ValueError(f"Unable to extract transcript from ASR response: {json.dumps(payload)[:400]}")
 
 
-def transcribe(chunks: list[str]) -> str:
-    """Transcribe audio chunks to text using Higgs ASR 3.
-
-    Args:
-        chunks: List of base64-encoded WAV strings from audio.ingest.
-
-    Returns:
-        Plain text transcription.
-    """
-    messages = _build_audio_messages(chunks, ASR_SYSTEM_PROMPT)
-    return chat_completion(
+def transcribe_bytes(
+    file_bytes: bytes,
+    filename: str = "audio.webm",
+    content_type: str = "audio/webm",
+    language: str = ASR_LANGUAGE,
+) -> str:
+    """Transcribe in-memory audio bytes using Higgs ASR."""
+    payload = generate_file(
         model=HIGGS_ASR_MODEL,
-        messages=messages,
-        temperature=0.2,
-        top_p=0.9,
-        max_tokens=2048,
+        file_bytes=file_bytes,
+        filename=filename,
+        content_type=content_type,
+        language=language,
     )
+    return _extract_text(payload)
 
 
-def transcribe_file(path: str) -> str:
+def transcribe_file(path: str, language: str = ASR_LANGUAGE) -> str:
     """Convenience: transcribe directly from an audio file path."""
-    from audio.ingest import chunk_audio_file
-    chunks = chunk_audio_file(path)
-    return transcribe(chunks)
+    file_path = Path(path)
+    content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+    with open(file_path, "rb") as handle:
+        return transcribe_bytes(
+            handle.read(),
+            filename=file_path.name,
+            content_type=content_type,
+            language=language,
+        )
+
+
+def transcribe(chunks: list[str], language: str = ASR_LANGUAGE) -> str:
+    """Compatibility wrapper for base64-encoded audio chunks."""
+    raw = bytearray()
+    try:
+        for chunk in chunks:
+            raw.extend(base64.b64decode(chunk))
+    except Exception as exc:
+        raise ValueError("Invalid base64 audio payload.") from exc
+    return transcribe_bytes(bytes(raw), filename="audio.wav", content_type="audio/wav", language=language)

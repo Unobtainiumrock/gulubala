@@ -4,7 +4,7 @@
     {
       "name": "account_number",
       "type": "string",
-      "prompt": "What is your account number?",
+      "prompt": "Please say or enter your account number so I can locate the subscription.",
       "validator": "account_number",
       "dtmf_allowed": true,
       "document_extractable": false
@@ -12,7 +12,7 @@
     {
       "name": "cancellation_reason",
       "type": "string",
-      "prompt": "May I ask why you'd like to cancel?",
+      "prompt": "Thank you. What is the main reason you would like to cancel today?",
       "validator": "non_empty",
       "dtmf_allowed": false,
       "document_extractable": false
@@ -20,7 +20,7 @@
     {
       "name": "confirm_cancel",
       "type": "string",
-      "prompt": "Just to confirm, you'd like to cancel your service. Is that correct? Please say yes or no.",
+      "prompt": "To confirm, would you like me to cancel the subscription now? Please say yes or no.",
       "validator": "yes_no",
       "dtmf_allowed": false,
       "document_extractable": false
