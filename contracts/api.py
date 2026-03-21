@@ -79,5 +79,36 @@ class EscalationSummaryResponse(BaseModel):
     state: dict[str, Any]
 
 
+class VoiceEventRequest(BaseModel):
+    """Raw Boson webhook payload forwarded to the voice handler."""
+    session_id: str | None = None
+    call_id: str | None = None
+    type: str
+    text: str | None = None
+    utterance: str | None = None
+    digits: str | None = None
+
+
+class VoiceEventResponse(BaseModel):
+    session_id: str
+    message: str
+    resolved: bool = False
+    escalated: bool = False
+
+
+class SubmitDocumentRequest(BaseModel):
+    session_id: str
+    document_text: str
+
+
+class SubmitDocumentResponse(BaseModel):
+    session_id: str
+    job_id: str
+    status: str
+    fields: dict[str, str] = Field(default_factory=dict)
+    confidence: dict[str, float] = Field(default_factory=dict)
+    mismatches: list[str] = Field(default_factory=list)
+
+
 class SessionResponse(BaseModel):
     session: SessionState

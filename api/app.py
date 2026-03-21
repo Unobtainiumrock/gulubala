@@ -18,8 +18,12 @@ from contracts.api import (
     PlanNextStepResponse,
     RouteIntentRequest,
     RouteIntentResponse,
+    SubmitDocumentRequest,
+    SubmitDocumentResponse,
     SubmitFieldRequest,
     SubmitFieldResponse,
+    VoiceEventRequest,
+    VoiceEventResponse,
 )
 from services.orchestrator import CallCenterService
 from services.session_store import SQLiteSessionStore
@@ -87,6 +91,31 @@ def create_app():
             service = get_service()
             payload = service.build_escalation_summary(request.session_id)
             return EscalationSummaryResponse.model_validate(payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/voice-event", response_model=VoiceEventResponse)
+    def voice_event(request: VoiceEventRequest):
+        try:
+            service = get_service()
+            payload = request.model_dump(exclude_none=True)
+            result = service.handle_voice_event(payload)
+            return VoiceEventResponse.model_validate(result)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/submit-document", response_model=SubmitDocumentResponse)
+    def submit_document(request: SubmitDocumentRequest):
+        try:
+            service = get_service()
+            result = service.submit_supporting_document(
+                request.session_id, request.document_text,
+            )
+            return SubmitDocumentResponse(
+                session_id=request.session_id, **result,
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
