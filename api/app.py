@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-import base64
-from typing import Any
-
 try:
-    from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+    from fastapi import FastAPI, HTTPException
 except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is absent
     FastAPI = None
     HTTPException = RuntimeError
-    UploadFile = Any
-    File = None
-    Form = None
 
 from config.models import SESSION_DB_PATH
 from contracts.api import (
