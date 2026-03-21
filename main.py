@@ -66,13 +66,25 @@ def _run_dialogue(initial_utterance: str, channel: str):
         print(f"Action result: {final_state.action_result}")
 
 
+def run_api_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = False):
+    """Start the FastAPI HTTP server via uvicorn."""
+    import uvicorn
+    uvicorn.run("api.app:app", host=host, port=port, reload=reload)
+
+
 def main():
     parser = argparse.ArgumentParser(description="LLM-Driven Call Center Agent")
     parser.add_argument("audio", nargs="?", help="Path to audio file")
     parser.add_argument("--text", action="store_true", help="Run in text-only mode")
+    parser.add_argument("--api", action="store_true", help="Start the HTTP API server")
+    parser.add_argument("--host", default="0.0.0.0", help="API server bind address (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=8000, help="API server port (default: 8000)")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
     args = parser.parse_args()
 
-    if args.text or not args.audio:
+    if args.api:
+        run_api_server(host=args.host, port=args.port, reload=args.reload)
+    elif args.text or not args.audio:
         run_text_session()
     else:
         run_audio_session(args.audio)

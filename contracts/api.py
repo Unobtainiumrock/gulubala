@@ -80,13 +80,19 @@ class EscalationSummaryResponse(BaseModel):
 
 
 class VoiceEventRequest(BaseModel):
-    """Raw Boson webhook payload forwarded to the voice handler."""
+    """Raw Boson webhook payload forwarded to the voice handler.
+
+    When ``audio_data`` (base64-encoded WAV) is provided with a
+    transcript-type event, the API runs ASR to produce the transcript
+    before forwarding to the voice handler.
+    """
     session_id: str | None = None
     call_id: str | None = None
     type: str
     text: str | None = None
     utterance: str | None = None
     digits: str | None = None
+    audio_data: str | None = None
 
 
 class VoiceEventResponse(BaseModel):
@@ -108,6 +114,10 @@ class SubmitDocumentResponse(BaseModel):
     fields: dict[str, str] = Field(default_factory=dict)
     confidence: dict[str, float] = Field(default_factory=dict)
     mismatches: list[str] = Field(default_factory=list)
+
+
+class HealthResponse(BaseModel):
+    status: str
 
 
 class SessionResponse(BaseModel):
