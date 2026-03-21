@@ -106,7 +106,7 @@ def test_api_smoke_flow(monkeypatch: pytest.MonkeyPatch):
 
     plan = client.post("/plan-next-step", json={"session_id": "api-session"})
     assert plan.status_code == 200
-    assert plan.json()["next_field"] == "account_id"
+    assert "account_id" in plan.json()["next_fields"]
 
     submit_account = client.post(
         "/submit-field",

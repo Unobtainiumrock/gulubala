@@ -47,6 +47,46 @@ def stub_field_extractor(field, utterance: str) -> str | None:
     return None
 
 
+def stub_multi_field_extractor(fields, utterance: str) -> dict[str, str]:
+    """Extract multiple fields from a combined utterance.
+
+    Splits by whitespace and tries each token per field so that
+    "12345678 03/01/2026 $95.00" correctly maps account_number→12345678,
+    charge_date→03/01/2026, charge_amount→$95.00 instead of concatenating
+    all digits together.  Free-text fields (reasons) get whatever tokens
+    remain after structured fields are consumed.
+    """
+    tokens = utterance.strip().split()
+    used: set[int] = set()
+    result: dict[str, str] = {}
+
+    # Structured fields first (order, amount, date, digit-based IDs)
+    free_text_fields = {"dispute_reason", "cancellation_reason", "new_value"}
+    for field in fields:
+        if field.name in free_text_fields:
+            continue
+        for i, token in enumerate(tokens):
+            if i in used:
+                continue
+            value = stub_field_extractor(field, token)
+            if value is not None:
+                result[field.name] = value
+                used.add(i)
+                break
+
+    # Free-text fields get remaining unconsumed tokens
+    for field in fields:
+        if field.name not in free_text_fields:
+            continue
+        remaining = " ".join(t for i, t in enumerate(tokens) if i not in used)
+        if remaining:
+            value = stub_field_extractor(field, remaining)
+            if value is not None:
+                result[field.name] = value
+
+    return result
+
+
 def make_service(monkeypatch: pytest.MonkeyPatch, intent: str, confidence: float = 0.95) -> CallCenterService:
     monkeypatch.setattr(
         "services.orchestrator.classify_intent",
@@ -60,6 +100,7 @@ def make_service(monkeypatch: pytest.MonkeyPatch, intent: str, confidence: float
     )
     engine = WorkflowEngine(
         field_extractor=stub_field_extractor,
+        multi_field_extractor=stub_multi_field_extractor,
         summary_builder=lambda payload: "Escalation summary.",
     )
     return CallCenterService(InMemorySessionStore(), engine=engine)
