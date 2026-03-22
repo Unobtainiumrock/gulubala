@@ -147,13 +147,15 @@ function buildLayout(
 
 /* ── component ───────────────────────────────────────────────────────── */
 
+const EMPTY_VISITED: string[] = [];
+
 export default function CallTreeGraph() {
   const callTree = useDashboardStore((s) => s.callTree);
   const currentNodeId = useDashboardStore(
     (s) => (s.activeSessionId ? s.sessions[s.activeSessionId]?.currentNodeId : null) ?? null,
   );
   const visitedNodeIds = useDashboardStore(
-    (s) => s.activeSessionId ? s.sessions[s.activeSessionId]?.visitedNodeIds ?? [] : [],
+    (s) => (s.activeSessionId ? s.sessions[s.activeSessionId]?.visitedNodeIds : null) ?? EMPTY_VISITED,
   );
 
   const { nodes, edges } = useMemo(() => {
