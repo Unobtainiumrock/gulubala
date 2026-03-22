@@ -85,6 +85,16 @@ def create_app():
         raise ModuleNotFoundError("FastAPI is not installed. Install requirements to run the HTTP API.")
 
     app = FastAPI(title="LLM Call Center Agent", version="0.1.0", lifespan=_lifespan)
+
+    from starlette.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.state.get_service = get_service
     app.include_router(ws_router)
     app.include_router(ivr_router)

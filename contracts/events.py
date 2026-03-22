@@ -20,6 +20,16 @@ class NodeEnteredEvent(BaseModel):
     missing_required_fields: list[str] = Field(default_factory=list)
 
 
+class IvrCallTreePositionEvent(BaseModel):
+    """Fired when the outbound agent's believed position in the IVR tree changes."""
+
+    event_type: Literal["ivr_calltree_position"] = "ivr_calltree_position"
+    session_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    node_id: str
+    label: str | None = None
+
+
 class TranscriptEvent(BaseModel):
     """Fired when a user or assistant turn is registered."""
 
@@ -87,6 +97,7 @@ class CompletedEvent(BaseModel):
 
 DashboardEvent = (
     NodeEnteredEvent
+    | IvrCallTreePositionEvent
     | TranscriptEvent
     | EscalationEvent
     | BridgeActiveEvent

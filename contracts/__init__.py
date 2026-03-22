@@ -4,6 +4,7 @@ from contracts.events import (
     CompletedEvent,
     DashboardEvent,
     EscalationEvent,
+    IvrCallTreePositionEvent,
     NodeEnteredEvent,
     TranscriptEvent,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "EscalationCondition",
     "EscalationEvent",
     "FieldDefinition",
+    "IvrCallTreePositionEvent",
     "NodeEnteredEvent",
     "SessionState",
     "TranscriptEvent",

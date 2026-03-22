@@ -38,6 +38,7 @@ from calltree.demo_ivr_scripts import get_demo_ivr_script
 from calltree.navigator import IvrNavigatorProcessor
 from calltree.scripted_ivr_stt import ScriptedIvrSttProcessor
 from config.models import (
+    DEMO_FORCE_HUMAN_FLOWS,
     TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN,
 )
@@ -84,6 +85,7 @@ def build_pipeline(
     task_description: str = "",
     available_fields: dict[str, str] | None = None,
     scripted_ivr_scenario: str | None = None,
+    demo_force_human_flows: bool | None = None,
 ) -> Pipeline:
     """Assemble the full Pipecat pipeline for IVR navigation.
 
@@ -101,6 +103,10 @@ def build_pipeline(
     else:
         stt = EigenSTTService()
     tts = EigenTTSService()
+    if demo_force_human_flows is None:
+        demo_force_human_flows = bool(
+            scripted_ivr_scenario == "cancel_service" and DEMO_FORCE_HUMAN_FLOWS
+        )
     navigator = IvrNavigatorProcessor(
         session_id=session_id,
         tree_id=tree_id,
@@ -108,6 +114,7 @@ def build_pipeline(
         available_fields=available_fields,
         twilio_call_sid=call_sid,
         ready_event=ready_event,
+        demo_force_human_flows=demo_force_human_flows,
     )
 
     return Pipeline([
@@ -128,6 +135,7 @@ async def run_agent_pipeline(
     task_description: str = "",
     available_fields: dict[str, str] | None = None,
     scripted_ivr_scenario: str | None = None,
+    demo_force_human_flows: bool | None = None,
 ) -> None:
     """Build and run the full agent pipeline until the call ends.
 
@@ -144,6 +152,7 @@ async def run_agent_pipeline(
         task_description=task_description,
         available_fields=available_fields,
         scripted_ivr_scenario=scripted_ivr_scenario,
+        demo_force_human_flows=demo_force_human_flows,
     )
 
     task = PipelineTask(pipeline)
@@ -166,6 +175,7 @@ def run_agent_pipeline_sync(
     task_description: str = "",
     available_fields: dict[str, str] | None = None,
     scripted_ivr_scenario: str | None = None,
+    demo_force_human_flows: bool | None = None,
 ) -> None:
     """Synchronous wrapper for ``run_agent_pipeline``.
 
@@ -179,4 +189,5 @@ def run_agent_pipeline_sync(
         task_description=task_description,
         available_fields=available_fields,
         scripted_ivr_scenario=scripted_ivr_scenario,
+        demo_force_human_flows=demo_force_human_flows,
     ))
