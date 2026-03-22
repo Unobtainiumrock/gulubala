@@ -1,0 +1,8 @@
+version: 3
+tunnels:
+  api:
+    proto: http
+    addr: 8000
+  stream:
+    proto: http
+    addr: 8765

@@ -61,10 +61,5 @@ _NGROK = os.environ.get("NGROK_URL", "").strip().rstrip("/")
 _PUBLIC = os.environ.get("PUBLIC_API_BASE_URL", "").strip().rstrip("/")
 PUBLIC_API_BASE_URL = _PUBLIC or _NGROK
 
-# When true, escalation also moves the active IVR call + presenter into a conference.
-TWILIO_ESCALATION_BRIDGE = (
-    os.environ.get("TWILIO_ESCALATION_BRIDGE", "false").lower() == "true"
-)
-
 # Pipecat media stream URL (wss:// reachable from Twilio, e.g. via second ngrok tunnel).
 PIPELINE_STREAM_URL = os.environ.get("PIPELINE_STREAM_URL", "")

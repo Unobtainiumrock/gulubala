@@ -13,8 +13,8 @@ def _reset_twilio_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config_models, "TWILIO_ACCOUNT_SID", "")
     monkeypatch.setattr(config_models, "TWILIO_AUTH_TOKEN", "")
     monkeypatch.setattr(config_models, "PRESENTER_PHONE_NUMBER", "")
+    monkeypatch.setattr(config_models, "TWILIO_AGENT_NUMBER", "")
     monkeypatch.setattr(config_models, "PUBLIC_API_BASE_URL", "")
-    monkeypatch.setattr(config_models, "TWILIO_ESCALATION_BRIDGE", False)
 
 
 def test_transcript_url_none_without_public_base() -> None:
@@ -47,27 +47,28 @@ def test_notify_completion_skips_without_twilio_config() -> None:
     )
 
 
-def test_notify_escalation_invokes_twilio(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_notify_escalation_sms_and_call_without_call_sid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When there's no active call SID, escalation sends SMS + voice call (no bridge)."""
     monkeypatch.setattr(config_models, "TWILIO_ACCOUNT_SID", "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
     monkeypatch.setattr(config_models, "TWILIO_AUTH_TOKEN", "token")
     monkeypatch.setattr(config_models, "PRESENTER_PHONE_NUMBER", "+15551234567")
+    monkeypatch.setattr(config_models, "TWILIO_AGENT_NUMBER", "+15559999999")
 
     sms_log: list[str] = []
     call_log: list[str] = []
 
     monkeypatch.setattr(
-        presenter_notify,
-        "send_sms",
+        presenter_notify, "send_sms",
         lambda body, **_: sms_log.append(body) or "SMxxx",
     )
     monkeypatch.setattr(
-        presenter_notify,
-        "call_presenter",
+        presenter_notify, "call_presenter",
         lambda message, **_: call_log.append(message) or "CAyyy",
     )
     monkeypatch.setattr(
-        presenter_notify,
-        "bridge_to_conference",
+        presenter_notify, "bridge_to_conference",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("bridge should not run")),
     )
 
@@ -82,18 +83,19 @@ def test_notify_escalation_invokes_twilio(monkeypatch: pytest.MonkeyPatch) -> No
     assert len(call_log) == 1 and "verification code" in call_log[0].lower()
 
 
-def test_notify_escalation_bridge_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_notify_escalation_bridges_with_call_sid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When a call SID is present, escalation bridges the IVR + presenter into a conference."""
     monkeypatch.setattr(config_models, "TWILIO_ACCOUNT_SID", "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
     monkeypatch.setattr(config_models, "TWILIO_AUTH_TOKEN", "token")
     monkeypatch.setattr(config_models, "PRESENTER_PHONE_NUMBER", "+15551234567")
-    monkeypatch.setattr(config_models, "TWILIO_ESCALATION_BRIDGE", True)
+    monkeypatch.setattr(config_models, "TWILIO_AGENT_NUMBER", "+15559999999")
 
     monkeypatch.setattr(presenter_notify, "send_sms", lambda *a, **k: "SM1")
-    monkeypatch.setattr(presenter_notify, "call_presenter", lambda *a, **k: "CA1")
     monkeypatch.setattr(
-        presenter_notify,
-        "bridge_to_conference",
-        lambda conf, sid, _presenter, **k: {
+        presenter_notify, "bridge_to_conference",
+        lambda conf, sid, presenter, **k: {
             "conference_name": conf,
             "presenter_call_sid": "CAbridge",
         },
@@ -101,7 +103,7 @@ def test_notify_escalation_bridge_when_enabled(monkeypatch: pytest.MonkeyPatch) 
 
     bridge = presenter_notify.notify_escalation(
         session_id="abc-def",
-        reason="help",
+        reason="Live agent on line",
         validated_fields={},
         twilio_call_sid="CAivr",
     )

@@ -52,6 +52,26 @@ class BridgeActiveEvent(BaseModel):
     presenter_call_sid: str
 
 
+class InfoRequestedEvent(BaseModel):
+    """Fired when the agent calls the presenter to gather a missing field."""
+
+    event_type: Literal["info_requested"] = "info_requested"
+    session_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    field_name: str
+    field_prompt: str
+
+
+class InfoGatheredEvent(BaseModel):
+    """Fired when the presenter provides the missing field value."""
+
+    event_type: Literal["info_gathered"] = "info_gathered"
+    session_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    field_name: str
+    value: str
+
+
 class CompletedEvent(BaseModel):
     """Fired when a session resolves successfully."""
 
@@ -70,5 +90,7 @@ DashboardEvent = (
     | TranscriptEvent
     | EscalationEvent
     | BridgeActiveEvent
+    | InfoRequestedEvent
+    | InfoGatheredEvent
     | CompletedEvent
 )

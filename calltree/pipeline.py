@@ -9,7 +9,7 @@ Pipeline topology::
     Twilio audio in
         -> TwilioFrameSerializer (mu-law decode)
         -> WebsocketServerTransport input
-        -> EigenSTTService (speech-to-text via Higgs ASR 3)
+        -> EigenSTTService or ScriptedIvrSttProcessor (demo: timed transcripts)
         -> IvrNavigatorProcessor (classify IVR prompt, decide action)
         -> EigenTTSService (text-to-speech via Higgs Audio V2.5)
         -> WebsocketServerTransport output
@@ -34,7 +34,9 @@ from pipecat.transports.websocket.server import (
     WebsocketServerTransport,
 )
 
+from calltree.demo_ivr_scripts import get_demo_ivr_script
 from calltree.navigator import IvrNavigatorProcessor
+from calltree.scripted_ivr_stt import ScriptedIvrSttProcessor
 from config.models import (
     TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN,
@@ -81,9 +83,20 @@ def build_pipeline(
     tree_id: str = "acme_corp",
     task_description: str = "",
     available_fields: dict[str, str] | None = None,
+    scripted_ivr_scenario: str | None = None,
 ) -> Pipeline:
-    """Assemble the full Pipecat pipeline for IVR navigation."""
-    stt = EigenSTTService()
+    """Assemble the full Pipecat pipeline for IVR navigation.
+
+    If *scripted_ivr_scenario* is set (e.g. ``\"cancel_service\"``), inbound audio
+    is ignored and timed ``TranscriptionFrame``s are injected so the demo
+    matches the Acme tree without a real IVR on the callee leg.
+    """
+    if scripted_ivr_scenario:
+        stt: EigenSTTService | ScriptedIvrSttProcessor = ScriptedIvrSttProcessor(
+            get_demo_ivr_script(scripted_ivr_scenario),
+        )
+    else:
+        stt = EigenSTTService()
     tts = EigenTTSService()
     navigator = IvrNavigatorProcessor(
         session_id=session_id,
@@ -110,6 +123,7 @@ async def run_agent_pipeline(
     tree_id: str = "acme_corp",
     task_description: str = "",
     available_fields: dict[str, str] | None = None,
+    scripted_ivr_scenario: str | None = None,
 ) -> None:
     """Build and run the full agent pipeline until the call ends.
 
@@ -125,6 +139,7 @@ async def run_agent_pipeline(
         tree_id=tree_id,
         task_description=task_description,
         available_fields=available_fields,
+        scripted_ivr_scenario=scripted_ivr_scenario,
     )
 
     task = PipelineTask(pipeline)
@@ -146,6 +161,7 @@ def run_agent_pipeline_sync(
     tree_id: str = "acme_corp",
     task_description: str = "",
     available_fields: dict[str, str] | None = None,
+    scripted_ivr_scenario: str | None = None,
 ) -> None:
     """Synchronous wrapper for ``run_agent_pipeline``.
 
@@ -158,4 +174,5 @@ def run_agent_pipeline_sync(
         tree_id=tree_id,
         task_description=task_description,
         available_fields=available_fields,
+        scripted_ivr_scenario=scripted_ivr_scenario,
     ))

@@ -52,6 +52,7 @@ class IvrActionResponse(BaseModel):
         "send_dtmf",
         "speak",
         "wait",
+        "request_info",
         "escalate",
         "complete",
     ]
@@ -60,6 +61,8 @@ class IvrActionResponse(BaseModel):
     reasoning: str | None = None
     escalation_reason: str | None = None
     completion_summary: str | None = None
+    requested_field: str | None = None
+    field_prompt: str | None = None
 
 
 def _find_json_payload(raw: str) -> str:
@@ -167,6 +170,8 @@ def build_ivr_action_prompt(
         "reasoning": "Selecting billing menu to reach billing dispute",
         "escalation_reason": None,
         "completion_summary": None,
+        "requested_field": None,
+        "field_prompt": None,
     })
     parts = [
         f"[prompt_contract={PROMPT_VERSION}:ivr_action]",
@@ -185,7 +190,14 @@ def build_ivr_action_prompt(
         "- send_dtmf: Press a digit to select a menu option",
         "- speak: Say something to answer a question or provide information",
         "- wait: Stay silent and listen for more",
-        "- escalate: You are stuck and need human help",
+        "- request_info: The IVR is asking for information you do NOT have in your "
+        "available fields. Set requested_field to the field name (e.g. 'security_pin') "
+        "and field_prompt to a plain-English question to ask the human "
+        "(e.g. 'What is the security PIN on your account?'). "
+        "The system will call the human, ask the question, and give you the answer.",
+        "- escalate: A live human agent has joined the call OR you are completely stuck "
+        "and the human must speak on the line. This bridges the human into the call "
+        "via conference. Only use this when a real human-to-human conversation is needed.",
         "- complete: The caller's task is finished (IVR confirmed success or final step done); "
         "set completion_summary to a short outcome phrase\n",
         f"Return ONLY valid JSON like: {example}",

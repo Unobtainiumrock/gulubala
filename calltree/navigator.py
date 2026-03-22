@@ -34,6 +34,8 @@ from contracts.events import (
     BridgeActiveEvent,
     CompletedEvent,
     EscalationEvent,
+    InfoGatheredEvent,
+    InfoRequestedEvent,
     TranscriptEvent,
 )
 from contracts.prompts import (
@@ -44,7 +46,9 @@ from contracts.prompts import (
     parse_contract,
 )
 from dashboard.ws import get_manager
+from telephony.presenter_gather import create_gather_future
 from telephony.presenter_notify import (
+    call_presenter_for_info,
     notify_completion,
     notify_escalation,
     transcript_url_for_session,
@@ -222,6 +226,11 @@ class IvrNavigatorProcessor(FrameProcessor):
             await self._send_dtmf(action.dtmf_digits)
         elif action.action == "speak" and action.speech_text:
             await self._speak(action.speech_text)
+        elif action.action == "request_info" and action.requested_field:
+            await self._request_info(
+                action.requested_field,
+                action.field_prompt or f"What is your {action.requested_field}?",
+            )
         elif action.action == "escalate":
             await self._escalate(action.escalation_reason or "Agent requested help")
         elif action.action == "complete":
@@ -260,6 +269,72 @@ class IvrNavigatorProcessor(FrameProcessor):
         ))
         await self.push_frame(TextFrame(text=text))
 
+    async def _request_info(self, field_name: str, field_prompt: str) -> None:
+        """Soft escalation: call the presenter to gather a missing field value.
+
+        The IVR call stays on hold (navigator pauses) while we place a
+        side-call to the presenter with ``<Gather input="speech">``.
+        When the Twilio webhook fires, the future resolves and we resume.
+        """
+        from config.models import PUBLIC_API_BASE_URL
+
+        self._emit_event(InfoRequestedEvent(
+            session_id=self._state.session_id,
+            field_name=field_name,
+            field_prompt=field_prompt,
+        ))
+        note = f"[INFO REQUEST: asking presenter for '{field_name}']"
+        self._state.transcript.append({"role": "agent", "content": note})
+        record_transcript_turn(self._state.session_id, "agent", note)
+        self._emit_event(TranscriptEvent(
+            session_id=self._state.session_id,
+            role="assistant",
+            content=note,
+        ))
+
+        logger.info("Requesting info field=%s from presenter", field_name)
+
+        loop = asyncio.get_running_loop()
+        future = create_gather_future(self._state.session_id, field_name, loop)
+
+        callback_base = PUBLIC_API_BASE_URL
+        if not callback_base:
+            logger.error("PUBLIC_API_BASE_URL not set; cannot call presenter for info")
+            return
+
+        await asyncio.to_thread(
+            call_presenter_for_info,
+            session_id=self._state.session_id,
+            field_name=field_name,
+            field_prompt=field_prompt,
+            callback_base_url=callback_base,
+        )
+
+        try:
+            value = await asyncio.wait_for(future, timeout=60.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            logger.warning("Presenter did not provide '%s' in time", field_name)
+            return
+
+        self._state.available_fields[field_name] = value
+        logger.info("Received field=%s value=%s from presenter", field_name, value[:40])
+
+        self._emit_event(InfoGatheredEvent(
+            session_id=self._state.session_id,
+            field_name=field_name,
+            value=value,
+        ))
+        gathered = f"[INFO GATHERED: {field_name} = {value}]"
+        self._state.transcript.append({"role": "agent", "content": gathered})
+        record_transcript_turn(self._state.session_id, "agent", gathered)
+        self._emit_event(TranscriptEvent(
+            session_id=self._state.session_id,
+            role="assistant",
+            content=gathered,
+        ))
+
+        await self._speak(value)
+
     async def _escalate(self, reason: str) -> None:
         self._state.escalated = True
         self._emit_event(EscalationEvent(
@@ -278,15 +353,19 @@ class IvrNavigatorProcessor(FrameProcessor):
             twilio_call_sid=self._twilio_call_sid,
         )
         if bridge is not None:
+            # Conference bridge is active — the IVR call has been moved out
+            # of the Pipecat media stream, so TTS would go nowhere.
             self._emit_event(BridgeActiveEvent(
                 session_id=self._state.session_id,
                 conference_name=bridge.conference_name,
                 presenter_call_sid=bridge.presenter_call_sid,
             ))
-
-        await self.push_frame(
-            TextFrame(text=f"I need help from a human. {reason}")
-        )
+        else:
+            # No bridge (no active call SID) — pipeline is still live,
+            # so speak into the IVR to buy time while the presenter is notified.
+            await self.push_frame(
+                TextFrame(text=f"I need help from a human. {reason}")
+            )
 
     def mark_completed(
         self,

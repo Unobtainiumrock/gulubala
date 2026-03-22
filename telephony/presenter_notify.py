@@ -12,6 +12,18 @@ import config.models as config_models
 logger = logging.getLogger(__name__)
 
 
+def _require_twilio_voice() -> None:
+    if not all(
+        [
+            config_models.TWILIO_ACCOUNT_SID,
+            config_models.TWILIO_AUTH_TOKEN,
+            config_models.PRESENTER_PHONE_NUMBER,
+            config_models.TWILIO_AGENT_NUMBER,
+        ]
+    ):
+        raise RuntimeError("Twilio voice requires account, token, from, and presenter numbers.")
+
+
 @dataclass
 class BridgeResult:
     """Returned when escalation moves the IVR leg into a Twilio conference."""
@@ -53,15 +65,7 @@ def send_sms(body: str, *, to: str | None = None) -> str:
 
 def call_presenter(message: str, **_: Any) -> str:
     """Place an outbound call to the presenter with a spoken summary (TwiML URL or inline)."""
-    if not all(
-        [
-            config_models.TWILIO_ACCOUNT_SID,
-            config_models.TWILIO_AUTH_TOKEN,
-            config_models.PRESENTER_PHONE_NUMBER,
-            config_models.TWILIO_AGENT_NUMBER,
-        ]
-    ):
-        raise RuntimeError("Twilio voice requires account, token, from, and presenter numbers.")
+    _require_twilio_voice()
     from twilio.rest import Client
     from xml.sax.saxutils import escape
 
@@ -69,7 +73,7 @@ def call_presenter(message: str, **_: Any) -> str:
     safe = escape(message)
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
-        "<Response><Say voice=\"Polly.Joanna\">"
+        '<Response><Say voice="Polly.Joanna">'
         f"{safe}"
         "</Say></Response>"
     )
@@ -81,23 +85,104 @@ def call_presenter(message: str, **_: Any) -> str:
     return call.sid
 
 
+def call_presenter_for_info(
+    *,
+    session_id: str,
+    field_name: str,
+    field_prompt: str,
+    callback_base_url: str,
+) -> str:
+    """Call the presenter and use ``<Gather input="speech">`` to collect a field value.
+
+    Twilio posts the result to ``/ivr/presenter-gather/{session_id}/{field_name}``.
+    Returns the Twilio call SID.
+    """
+    _require_twilio_voice()
+    from twilio.rest import Client
+    from xml.sax.saxutils import escape
+
+    client = Client(config_models.TWILIO_ACCOUNT_SID, config_models.TWILIO_AUTH_TOKEN)
+    safe_prompt = escape(field_prompt)
+    action_url = (
+        f"{callback_base_url.rstrip('/')}"
+        f"/ivr/presenter-gather/{session_id}/{field_name}"
+    )
+
+    twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response>"
+        f'<Say voice="Polly.Joanna">The automated agent needs your help.</Say>'
+        f'<Gather input="speech" timeout="15" speechTimeout="auto" '
+        f'action="{escape(action_url)}" method="POST">'
+        f'<Say voice="Polly.Joanna">{safe_prompt}</Say>'
+        "</Gather>"
+        '<Say voice="Polly.Joanna">No response received. Goodbye.</Say>'
+        "</Response>"
+    )
+
+    call = client.calls.create(
+        to=config_models.PRESENTER_PHONE_NUMBER,
+        from_=config_models.TWILIO_AGENT_NUMBER,
+        twiml=twiml,
+    )
+    logger.info(
+        "Info-gather call placed sid=%s session=%s field=%s",
+        call.sid, session_id, field_name,
+    )
+    return call.sid
+
+
 def bridge_to_conference(
     conference_name: str,
     ivr_call_sid: str,
     presenter_phone: str,
-    **kwargs: Any,
-) -> dict[str, str] | None:
+    **_: Any,
+) -> dict[str, str]:
     """Move the active IVR call and presenter into a Twilio conference.
 
-    Override or extend for production; default implementation does not dial.
+    1. Updates the in-progress IVR call to join the conference.
+    2. Dials the presenter into the same conference.
+    Returns ``{conference_name, presenter_call_sid}``.
     """
-    logger.warning(
-        "bridge_to_conference not implemented (conf=%s ivr=%s presenter=%s)",
-        conference_name,
-        ivr_call_sid,
-        presenter_phone,
+    _require_twilio_voice()
+    from twilio.rest import Client
+    from xml.sax.saxutils import escape
+
+    client = Client(config_models.TWILIO_ACCOUNT_SID, config_models.TWILIO_AUTH_TOKEN)
+    safe_conf = escape(conference_name)
+
+    ivr_conf_twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response><Dial>"
+        f"<Conference>{safe_conf}</Conference>"
+        "</Dial></Response>"
     )
-    return None
+    client.calls(ivr_call_sid).update(twiml=ivr_conf_twiml)
+    logger.info("IVR call %s moved into conference %s", ivr_call_sid, conference_name)
+
+    presenter_twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response>"
+        '<Say voice="Polly.Joanna">'
+        "Connecting you to the live call now."
+        "</Say>"
+        "<Dial>"
+        f"<Conference>{safe_conf}</Conference>"
+        "</Dial></Response>"
+    )
+    presenter_call = client.calls.create(
+        to=presenter_phone or config_models.PRESENTER_PHONE_NUMBER,
+        from_=config_models.TWILIO_AGENT_NUMBER,
+        twiml=presenter_twiml,
+    )
+    logger.info(
+        "Presenter dialed into conference %s (sid=%s)",
+        conference_name, presenter_call.sid,
+    )
+    return {
+        "conference_name": conference_name,
+        "presenter_call_sid": presenter_call.sid,
+    }
 
 
 def notify_completion(
@@ -133,43 +218,47 @@ def notify_escalation(
     validated_fields: dict[str, str],
     twilio_call_sid: str | None,
 ) -> BridgeResult | None:
-    """Escalation: optional SMS + presenter call; optional conference bridge."""
+    """Escalation: SMS context + conference bridge (hard escalation).
+
+    If ``twilio_call_sid`` is available the IVR call and presenter are
+    joined in a Twilio conference so the human can speak directly on the
+    line.  An SMS with the transcript link is sent first so the presenter
+    has context before picking up.
+    """
     url = transcript_url_for_session(session_id)
     logger.warning(
         "Escalation session=%s reason=%s call_sid=%s transcript=%s",
-        session_id,
-        reason,
-        twilio_call_sid,
-        url or "(no public base URL)",
+        session_id, reason, twilio_call_sid, url or "(no public base URL)",
     )
 
-    if config_models.TWILIO_ESCALATION_BRIDGE and twilio_call_sid:
-        conf = f"ivr_esc_{uuid.uuid4().hex[:12]}"
-        presenter = (config_models.PRESENTER_PHONE_NUMBER or "").strip()
-        raw = bridge_to_conference(conf, twilio_call_sid, presenter)
-        if raw is None:
-            return None
-        return BridgeResult(
-            conference_name=raw["conference_name"],
-            presenter_call_sid=raw["presenter_call_sid"],
-        )
-
-    if all(
+    twilio_ok = all(
         [
             config_models.TWILIO_ACCOUNT_SID,
             config_models.TWILIO_AUTH_TOKEN,
             config_models.PRESENTER_PHONE_NUMBER,
         ]
-    ):
-        parts = [f"Escalation {session_id}: {reason}."]
-        if validated_fields:
-            parts.append(f"Fields: {validated_fields}")
-        if url:
-            parts.append(f"Transcript: {url}")
-        sms_body = " ".join(parts)
-        send_sms(sms_body)
-        call_presenter(
-            message=f"Escalation for session {session_id}. {reason}.",
+    )
+    if not twilio_ok:
+        return None
+
+    parts = [f"Escalation {session_id}: {reason}."]
+    if validated_fields:
+        parts.append(f"Fields: {validated_fields}")
+    if url:
+        parts.append(f"Transcript: {url}")
+    try:
+        send_sms(" ".join(parts))
+    except Exception as exc:
+        logger.warning("Escalation SMS failed: %s", exc)
+
+    if twilio_call_sid:
+        conf = f"ivr_esc_{uuid.uuid4().hex[:12]}"
+        presenter = (config_models.PRESENTER_PHONE_NUMBER or "").strip()
+        raw = bridge_to_conference(conf, twilio_call_sid, presenter)
+        return BridgeResult(
+            conference_name=raw["conference_name"],
+            presenter_call_sid=raw["presenter_call_sid"],
         )
 
+    call_presenter(message=f"Escalation for session {session_id}. {reason}.")
     return None

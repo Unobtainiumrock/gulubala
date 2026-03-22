@@ -10,6 +10,7 @@ from calltree.models import CallTreeNode
 from calltree.registry import get_call_tree, get_call_tree_node
 from ivr.agent import cleanup_call, process_agent_turn, start_agent_session
 from services.orchestrator import CallCenterService
+from telephony.presenter_gather import resolve_gather
 
 router = APIRouter(prefix="/ivr", tags=["ivr"])
 
@@ -174,6 +175,26 @@ async def agent_turn(request: Request, node_id: str) -> Response:
     if result["resolved"] or result["escalated"]:
         return _build_terminal_response(result["message"])
     return _build_speech_response([result["message"]], f"/ivr/agent-turn?node_id={node_id}")
+
+
+@router.post("/presenter-gather/{session_id}/{field_name}")
+async def presenter_gather(
+    request: Request,
+    session_id: str,
+    field_name: str,
+) -> Response:
+    """Twilio ``<Gather>`` callback — delivers the presenter's spoken answer."""
+    form = await _read_twilio_form(request)
+    speech = str(form.get("SpeechResult", "")).strip()
+
+    root = _response_root()
+    if speech:
+        resolve_gather(session_id, field_name, speech)
+        _add_say(root, f"Got it. Passing that back to the agent. Thank you.")
+    else:
+        _add_say(root, "No response detected. The agent will try another approach.")
+    SubElement(root, "Hangup")
+    return _xml_response(root)
 
 
 @router.post("/status-callback")
