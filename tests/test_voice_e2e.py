@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import make_service
+from workflows.registry import get_workflow
 
 import api.app as app_mod
 
@@ -33,6 +34,10 @@ class TestPasswordResetVoiceFlow:
         assert data1["session_id"] == "pw-voice-1"
         assert data1["resolved"] is False
         assert data1["escalated"] is False
+        assert data1["voice_response"]["text"] == data1["message"]
+        assert data1["voice_response"]["ssml"].startswith("<speak>")
+        assert data1["voice_response"]["boson"]["type"] == "assistant_output"
+        assert data1["voice_response"]["boson"]["session_id"] == "pw-voice-1"
 
         r2 = client.post("/voice-event", json={
             "type": "transcript",
@@ -43,6 +48,7 @@ class TestPasswordResetVoiceFlow:
         data2 = r2.json()
         assert data2["resolved"] is True
         assert "password reset" in data2["message"].lower()
+        assert data2["voice_response"]["text"] == data2["message"]
 
     def test_dtmf_account_id(self, monkeypatch):
         client = _make_client(monkeypatch, "password_reset")
@@ -62,6 +68,7 @@ class TestPasswordResetVoiceFlow:
         data2 = r2.json()
         assert data2["resolved"] is False
         assert data2["escalated"] is False
+        assert data2["voice_response"]["boson"]["text"] == data2["voice_response"]["spoken_text"]
 
         r3 = client.post("/voice-event", json={
             "type": "transcript",
@@ -113,6 +120,43 @@ class TestBillingDisputeVoiceFlow:
         assert "dispute has been opened" in r2.json()["message"].lower()
 
 
+class TestCancelServiceVoiceFlow:
+    """Cancel-service voice behavior, including DTMF restrictions."""
+
+    def test_dtmf_rejected_for_text_only_field(self, monkeypatch):
+        client = _make_client(monkeypatch, "cancel_service")
+        service = app_mod._SERVICE
+        assert service is not None
+
+        session = service.create_session(channel="voice", session_id="cancel-dtmf-1")
+        session.intent = "cancel_service"
+        workflow = get_workflow("cancel_service")
+        service.engine.synchronize_state(session, workflow)
+        service.store.save_session(session)
+
+        dtmf_account = client.post("/voice-event", json={
+            "type": "dtmf",
+            "session_id": "cancel-dtmf-1",
+            "digits": "12345678",
+        })
+        assert dtmf_account.status_code == 200
+
+        dtmf_reason = client.post("/voice-event", json={
+            "type": "dtmf",
+            "session_id": "cancel-dtmf-1",
+            "digits": "1234",
+        })
+        assert dtmf_reason.status_code == 200
+        payload = dtmf_reason.json()
+        assert payload["resolved"] is False
+        assert payload["message"] == "DTMF input is not available for the current field."
+        assert payload["voice_response"]["text"] == payload["message"]
+
+        session = service.get_session("cancel-dtmf-1")
+        assert session.validated_fields["account_number"] == "12345678"
+        assert "cancellation_reason" in session.current_fields
+
+
 class TestInterruptEvent:
     """Interrupt events preserve session state."""
 
@@ -132,6 +176,7 @@ class TestInterruptEvent:
         assert r.status_code == 200
         assert r.json()["message"] == "Interruption registered."
         assert r.json()["resolved"] is False
+        assert r.json()["voice_response"]["boson"]["type"] == "assistant_output"
 
 
 class TestASRWiring:

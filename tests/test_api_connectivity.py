@@ -1,6 +1,9 @@
 """Live API connectivity smoke tests.
 
-Skipped when EIGEN_API_KEY is not set so CI runs without credentials.
+These tests are intentionally opt-in because they require real credentials and
+outbound network access. Run them with:
+
+``RUN_LIVE_EIGEN_TESTS=1 pytest tests/test_api_connectivity.py``
 """
 
 from __future__ import annotations
@@ -16,7 +19,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 _has_key = bool(os.environ.get("EIGEN_API_KEY"))
-pytestmark = pytest.mark.skipif(not _has_key, reason="EIGEN_API_KEY not set")
+_run_live = os.environ.get("RUN_LIVE_EIGEN_TESTS") == "1"
+pytestmark = pytest.mark.skipif(
+    not (_has_key and _run_live),
+    reason="live Eigen connectivity tests require EIGEN_API_KEY and RUN_LIVE_EIGEN_TESTS=1",
+)
 
 
 @pytest.fixture(scope="module")

@@ -268,6 +268,19 @@ class TestNegativePaths:
         resp = client.post("/voice-event", json={"type": "transcript"})
         assert resp.status_code == 422
 
+    def test_voice_event_accepts_call_id_alias(self, monkeypatch):
+        client = _client_for(monkeypatch, "password_reset")
+        resp = client.post("/voice-event", json={
+            "type": "transcript",
+            "call_id": "voice-call-alias-1",
+            "text": "I need to reset my password",
+        })
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["session_id"] == "voice-call-alias-1"
+        assert payload["resolved"] is False
+        assert payload["voice_response"]["boson"]["session_id"] == "voice-call-alias-1"
+
     def test_concurrent_sessions_independent(self, monkeypatch):
         client = _client_for(monkeypatch, "password_reset")
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -95,11 +95,28 @@ class VoiceEventRequest(BaseModel):
     audio_data: str | None = None
 
 
+class BosonAssistantOutput(BaseModel):
+    type: Literal["assistant_output"] = "assistant_output"
+    session_id: str
+    text: str
+    ssml: str | None = None
+    voice: str | None = None
+    barge_in: bool = True
+
+
+class VoiceResponseEnvelope(BaseModel):
+    text: str
+    spoken_text: str
+    ssml: str | None = None
+    boson: BosonAssistantOutput | None = None
+
+
 class VoiceEventResponse(BaseModel):
     session_id: str
     message: str
     resolved: bool = False
     escalated: bool = False
+    voice_response: VoiceResponseEnvelope | None = None
 
 
 class SubmitDocumentRequest(BaseModel):
@@ -145,6 +162,7 @@ class DemoStartResponse(BaseModel):
     scenario: DemoScenarioResponse
     message: str
     docs_url: str = "/docs"
+    voice_response: VoiceResponseEnvelope | None = None
 
 
 class DemoTurnRequest(BaseModel):
@@ -168,3 +186,4 @@ class DemoTurnResponse(BaseModel):
     escalated: bool
     scenario_id: str | None = None
     action_result: str | None = None
+    voice_response: VoiceResponseEnvelope | None = None

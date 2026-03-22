@@ -1,5 +1,6 @@
 import pytest
 
+from actions.backend import reset_password
 from dialogue.manager import WorkflowEngine
 from services.orchestrator import CallCenterService
 from services.session_store import InMemorySessionStore
@@ -50,6 +51,19 @@ def test_password_reset_happy_path(password_reset_service: CallCenterService):
     response = password_reset_service.handle_user_turn(session.session_id, "12345678 654321")
     assert response["resolved"] is True
     assert "password reset" in response["message"]
+
+
+def test_password_reset_includes_callback_number_when_present():
+    result = reset_password(
+        {
+            "account_id": "12345678",
+            "verification_code": "654321",
+            "callback_number": "4155550100",
+        }
+    )
+
+    assert "Password reset initiated" in result
+    assert "4155550100" in result
 
 
 def test_password_reset_invalid_code_three_times_escalates(password_reset_service: CallCenterService):
@@ -116,6 +130,22 @@ def test_backend_failure_propagates_to_escalation(monkeypatch: pytest.MonkeyPatc
 
     final_state = service.get_session(session.session_id)
     assert result["status"] == "failed"
+    assert final_state.escalation_reason == "backend_failure"
+
+
+def test_backend_error_string_propagates_to_escalation(monkeypatch: pytest.MonkeyPatch):
+    service = make_service(monkeypatch, "order_status")
+    session = service.create_session(channel="text")
+    service.route_intent(session.session_id, "Where is my order?")
+    service.submit_field(session.session_id, "order_number", "ORD-123456")
+
+    monkeypatch.setattr("services.orchestrator.execute_action", lambda action, fields: "Error: backend down")
+    result = service.dispatch_action(session.session_id)
+
+    final_state = service.get_session(session.session_id)
+    assert result["status"] == "failed"
+    assert result["result"] == "Error: backend down"
+    assert result["escalate"] is True
     assert final_state.escalation_reason == "backend_failure"
 
 

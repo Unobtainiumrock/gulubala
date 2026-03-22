@@ -1,8 +1,9 @@
+import audio.tts as tts_mod
 import pytest
 
 from contracts.models import ConversationTurn, SessionState
 from contracts.prompts import IntentExtractionResponse, parse_contract
-from audio.tts import normalize_tts_text
+from audio.tts import build_ssml, build_voice_response, normalize_tts_text, realize_spoken_text
 from validation.validators import (
     get_validator,
     normalize_digit_tokens,
@@ -65,6 +66,46 @@ def test_tts_text_normalization_rewrites_unfriendly_phrases():
 
     assert "account number" in normalized
     assert "1 2 3 4 5 6" in normalized
+
+
+def test_voice_response_envelope_includes_ssml_and_boson_payload():
+    envelope = build_voice_response(
+        "voice-session-1",
+        "Please say your account ID and then enter 123456.",
+    )
+
+    assert envelope is not None
+    assert envelope["text"] == "Please say your account ID and then enter 123456."
+    assert "account number" in envelope["spoken_text"]
+    assert "1 2 3 4 5 6" in envelope["spoken_text"]
+    assert envelope["ssml"] == build_ssml(envelope["text"])
+    assert envelope["boson"]["type"] == "assistant_output"
+    assert envelope["boson"]["session_id"] == "voice-session-1"
+    assert envelope["boson"]["text"] == envelope["spoken_text"]
+
+
+def test_spoken_text_realizer_handles_dates_and_identifiers():
+    spoken = realize_spoken_text(
+        "Order ORD-123456 shipped on 03/18/2026 and is scheduled to arrive on 03/22/2026. "
+        "The carrier is UPS, and the tracking number is 1Z999AA10123456784.",
+    )
+
+    assert "Order O R D dash 1 2 3 4 5 6" in spoken
+    assert "March 18, 2026" in spoken
+    assert "March 22, 2026" in spoken
+    assert "U P S" in spoken
+    assert "tracking number is 1 Z 9 9 9 A A 1 0 1 2 3 4 5 6 7 8 4" in spoken
+
+
+def test_voice_response_falls_back_to_canonical_text_on_realizer_error(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(tts_mod, "realize_spoken_text", lambda text: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    envelope = build_voice_response("voice-session-2", "Please continue.")
+
+    assert envelope is not None
+    assert envelope["spoken_text"] == "Please continue."
+    assert "Please continue." in envelope["ssml"]
+    assert envelope["boson"]["text"] == "Please continue."
 
 
 # --- DTMF flag guardrails (DEV-14) ---

@@ -38,6 +38,7 @@ def test_dtmf_event_submits_numeric_field(monkeypatch: pytest.MonkeyPatch):
     response = service.handle_voice_event({"type": "dtmf", "session_id": session.session_id, "digits": "12345678"})
 
     assert "verification code" in response["message"]
+    assert response["voice_response"]["boson"]["type"] == "assistant_output"
     final_state = service.get_session(session.session_id)
     assert final_state.validated_fields["account_id"] == "12345678"
 
@@ -52,6 +53,7 @@ def test_boson_interrupt_preserves_state(monkeypatch: pytest.MonkeyPatch):
 
     final_state = service.get_session(session.session_id)
     assert response["message"] == "Interruption registered."
+    assert response["voice_response"]["text"] == "Interruption registered."
     assert final_state.validated_fields["account_id"] == "12345678"
     assert final_state.metadata["boson_interrupted"] is True
 
@@ -161,11 +163,13 @@ def test_demo_guided_flow(monkeypatch: pytest.MonkeyPatch):
     payload = start.json()
     assert payload["scenario"]["intent"] == "password_reset"
     assert "Callit-Dev" in payload["message"]
+    assert payload["voice_response"]["boson"]["type"] == "assistant_output"
 
     session_id = payload["session_id"]
     turn_one = client.post("/demo/turn", json={"session_id": session_id, "utterance": "12345678"})
     assert turn_one.status_code == 200
     assert "verification code" in turn_one.json()["message"]
+    assert turn_one.json()["voice_response"]["boson"]["session_id"] == session_id
 
     turn_two = client.post("/demo/turn", json={"session_id": session_id, "utterance": "123456"})
     assert turn_two.status_code == 200
@@ -199,6 +203,7 @@ def test_demo_voice_turn(monkeypatch: pytest.MonkeyPatch):
     )
     assert voice_turn.status_code == 200
     assert voice_turn.json()["transcript"] == "12345678"
+    assert voice_turn.json()["voice_response"]["boson"]["session_id"] == session_id
 
 
 def test_document_adapter_extracts_supported_fields():

@@ -7,6 +7,7 @@ from typing import Any
 
 from actions.backend import execute_action
 from asr.transcribe import transcribe_bytes
+from audio.tts import build_voice_response
 from boson.adapter import BosonAdapter
 from demo.scenarios import get_demo_scenario, list_demo_scenarios
 from dialogue.manager import WorkflowEngine
@@ -57,11 +58,15 @@ class CallCenterService:
         self.engine.register_assistant_turn(session, opening_message)
         self.store.save_session(session)
         log_event("demo_session_started", session, scenario=scenario_id)
-        return {
+        result = {
             "session_id": session.session_id,
             "scenario": scenario,
             "message": opening_message,
         }
+        voice_response = self._voice_response(session, opening_message)
+        if voice_response is not None:
+            result["voice_response"] = voice_response
+        return result
 
     def route_intent(self, session_id: str, utterance: str) -> dict[str, Any]:
         session = self._get_or_create_session(session_id, channel="api")
@@ -235,12 +240,7 @@ class CallCenterService:
             self.engine.register_assistant_turn(session, message)
             self.store.save_session(session)
             log_event("conversation_turn", session, message=message)
-            return {
-                "session_id": session.session_id,
-                "message": message,
-                "resolved": session.resolved,
-                "escalated": session.escalate,
-            }
+            return self._conversation_response(session, message)
 
         if not session.intent:
             route = self.route_intent(session.session_id, utterance)
@@ -254,12 +254,7 @@ class CallCenterService:
                 self.engine.register_assistant_turn(session, message)
                 self.store.save_session(session)
                 log_event("conversation_turn", session, message=message)
-                return {
-                    "session_id": session.session_id,
-                    "message": message,
-                    "resolved": session.resolved,
-                    "escalated": session.escalate,
-                }
+                return self._conversation_response(session, message)
 
         workflow = self._require_workflow(session)
         submissions = self.engine.attempt_multi_field_capture(session, workflow, utterance)
@@ -300,12 +295,7 @@ class CallCenterService:
         self.engine.register_assistant_turn(session, message)
         self.store.save_session(session)
         log_event("conversation_turn", session, message=message)
-        return {
-            "session_id": session.session_id,
-            "message": message,
-            "resolved": session.resolved,
-            "escalated": session.escalate,
-        }
+        return self._conversation_response(session, message)
 
     def handle_demo_turn(self, session_id: str, utterance: str) -> dict[str, Any]:
         result = self.handle_user_turn(session_id, utterance)
@@ -350,12 +340,10 @@ class CallCenterService:
             dtmf_field_name = session.current_fields[0] if session.current_fields else None
             current_field = workflow.get_field(dtmf_field_name or "") if dtmf_field_name else None
             if current_field is None or not current_field.dtmf_allowed:
-                return {
-                    "session_id": session.session_id,
-                    "message": "DTMF input is not available for the current field.",
-                    "resolved": session.resolved,
-                    "escalated": session.escalate,
-                }
+                return self._conversation_response(
+                    session,
+                    "DTMF input is not available for the current field.",
+                )
             result = self.submit_field(session.session_id, current_field.name, normalized.digits or "", source="dtmf")
             session = self.get_session(session.session_id)
             if result["accepted"]:
@@ -370,33 +358,18 @@ class CallCenterService:
             self.engine.register_assistant_turn(session, message)
             self.store.save_session(session)
             log_event("conversation_turn", session, message=message)
-            return {
-                "session_id": session.session_id,
-                "message": message,
-                "resolved": session.resolved,
-                "escalated": session.escalate,
-            }
+            return self._conversation_response(session, message)
 
         if normalized.event_type == "interrupt":
             session.metadata["boson_interrupted"] = True
             self.store.save_session(session)
             log_event("voice_interrupt", session, metadata=normalized.metadata)
-            return {
-                "session_id": session.session_id,
-                "message": "Interruption registered.",
-                "resolved": session.resolved,
-                "escalated": session.escalate,
-            }
+            return self._conversation_response(session, "Interruption registered.")
 
         session.metadata["last_assistant_output"] = normalized.utterance
         self.store.save_session(session)
         log_event("voice_assistant_output", session, metadata=normalized.metadata)
-        return {
-            "session_id": session.session_id,
-            "message": normalized.utterance or "",
-            "resolved": session.resolved,
-            "escalated": session.escalate,
-        }
+        return self._conversation_response(session, normalized.utterance or "")
 
     def _compare_document_against_state(self, session, extracted_fields: dict[str, str]) -> list[str]:
         mismatches = []
@@ -411,6 +384,23 @@ class CallCenterService:
         if session is not None:
             return session
         return self.store.create_session(channel=channel, session_id=session_id)
+
+    def _voice_response(self, session, message: str) -> dict[str, Any] | None:
+        if session.channel != "voice":
+            return None
+        return build_voice_response(session.session_id, message)
+
+    def _conversation_response(self, session, message: str) -> dict[str, Any]:
+        result = {
+            "session_id": session.session_id,
+            "message": message,
+            "resolved": session.resolved,
+            "escalated": session.escalate,
+        }
+        voice_response = self._voice_response(session, message)
+        if voice_response is not None:
+            result["voice_response"] = voice_response
+        return result
 
     def _require_workflow(self, session):
         if not session.intent:
