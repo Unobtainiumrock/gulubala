@@ -54,7 +54,7 @@ Notes:
 
 - `EIGEN_API_KEY` is required for chat, ASR, document extraction, and TTS calls.
 - `SESSION_DB_PATH` controls where the API server stores session state.
-- `DEMO_TTS_VOICE` and `HIGGS_TTS_MODEL` matter if you use the TTS helpers in [`audio/tts.py`](/Users/sebastiansteen/Desktop/Dev-caller/audio/tts.py).
+- `DEMO_TTS_VOICE` and `HIGGS_TTS_MODEL` matter if you use the TTS helpers in [`audio/tts.py`](audio/tts.py).
 
 ## Install Dependencies
 
@@ -201,7 +201,7 @@ curl -X POST http://127.0.0.1:8000/demo/voice-turn \
 
 ## Backend Action Contract
 
-Teammates replacing stub actions in [`actions/backend.py`](/Users/sebastiansteen/Desktop/Dev-caller/actions/backend.py) should follow this drop-in contract:
+Teammates replacing stub actions in [`actions/backend.py`](actions/backend.py) should follow this drop-in contract:
 
 ```python
 # Example runtime shape. Use the specific TypedDict for your action when available.
@@ -437,8 +437,8 @@ Use `/demo/voice-turn` if you want to drive the seeded scenario with recorded au
 
 ## Useful Files
 
-- [`actions/backend.py`](/Users/sebastiansteen/Desktop/Dev-caller/actions/backend.py): backend action signatures, field shapes, and failure contract
-- [`main.py`](/Users/sebastiansteen/Desktop/Dev-caller/main.py): CLI and API entry point
-- [`api/app.py`](/Users/sebastiansteen/Desktop/Dev-caller/api/app.py): FastAPI routes
-- [`config/models.py`](/Users/sebastiansteen/Desktop/Dev-caller/config/models.py): environment-backed settings
-- [`boson/adapter.py`](/Users/sebastiansteen/Desktop/Dev-caller/boson/adapter.py): Boson event normalization
+- [`actions/backend.py`](actions/backend.py): backend action signatures, field shapes, and failure contract
+- [`main.py`](main.py): CLI and API entry point
+- [`api/app.py`](api/app.py): FastAPI routes
+- [`config/models.py`](config/models.py): environment-backed settings
+- [`boson/adapter.py`](boson/adapter.py): Boson event normalization
