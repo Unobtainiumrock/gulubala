@@ -12,18 +12,15 @@ import api.app as api_app
 from api.app import FastAPI, create_app
 from tests.conftest import make_service
 
+pytestmark = pytest.mark.skipif(FastAPI is None, reason="FastAPI not installed")
+
 if FastAPI is not None:
     from fastapi.testclient import TestClient
 
 
-def _require_fastapi():
-    if FastAPI is None:  # pragma: no cover
-        pytest.skip("FastAPI not installed")
-
-
 def _client(monkeypatch: pytest.MonkeyPatch, intent: str) -> "TestClient":
     service = make_service(monkeypatch, intent)
-    api_app._SERVICE = service
+    monkeypatch.setattr(api_app, "_SERVICE", service)
     return TestClient(create_app())
 
 
@@ -60,7 +57,6 @@ class TestHttpHappyPaths:
     """End-to-end success paths over the stepwise REST surface."""
 
     def test_password_reset(self, monkeypatch: pytest.MonkeyPatch):
-        _require_fastapi()
         sid = "http-happy-pw"
         client = _client(monkeypatch, "password_reset")
 
@@ -84,7 +80,6 @@ class TestHttpHappyPaths:
         assert "Password reset initiated" in (out["result"] or "")
 
     def test_billing_dispute(self, monkeypatch: pytest.MonkeyPatch):
-        _require_fastapi()
         sid = "http-happy-bill"
         client = _client(monkeypatch, "billing_dispute")
 
@@ -96,7 +91,7 @@ class TestHttpHappyPaths:
         assert _submit(client, sid, "account_number", "12345678")["accepted"] is True
         assert _submit(client, sid, "charge_date", "03/01/2026")["accepted"] is True
         p = _plan(client, sid)
-        assert "charge_amount" in p["next_fields"] or p["missing_required_fields"]
+        assert "charge_amount" in p["next_fields"] or "charge_amount" in p["missing_required_fields"]
 
         assert _submit(client, sid, "charge_amount", "$95.00")["accepted"] is True
         assert _submit(client, sid, "dispute_reason", "charged twice for same item")["accepted"] is True
@@ -106,7 +101,6 @@ class TestHttpHappyPaths:
         assert "Dispute case opened" in (out["result"] or "")
 
     def test_order_status(self, monkeypatch: pytest.MonkeyPatch):
-        _require_fastapi()
         sid = "http-happy-order"
         client = _client(monkeypatch, "order_status")
 
@@ -121,7 +115,6 @@ class TestHttpHappyPaths:
         assert "Order ORD-123456" in (out["result"] or "")
 
     def test_cancel_service(self, monkeypatch: pytest.MonkeyPatch):
-        _require_fastapi()
         sid = "http-happy-cancel"
         client = _client(monkeypatch, "cancel_service")
 
@@ -138,7 +131,6 @@ class TestHttpHappyPaths:
         assert "Service cancelled" in (out["result"] or "")
 
     def test_update_profile(self, monkeypatch: pytest.MonkeyPatch):
-        _require_fastapi()
         sid = "http-happy-profile"
         client = _client(monkeypatch, "update_profile")
 
@@ -159,7 +151,6 @@ class TestHttpEscalations:
     """One escalation scenario per intent, using HTTP only (plus /submit-document where agreed)."""
 
     def test_password_reset_retry_limit(self, monkeypatch: pytest.MonkeyPatch):
-        _require_fastapi()
         sid = "http-esc-pw-retry"
         client = _client(monkeypatch, "password_reset")
 
@@ -179,7 +170,6 @@ class TestHttpEscalations:
         assert plan["escalation_reason"] == "validation_retry_limit"
 
     def test_billing_document_mismatch(self, monkeypatch: pytest.MonkeyPatch):
-        _require_fastapi()
         sid = "http-esc-bill-doc"
         client = _client(monkeypatch, "billing_dispute")
 
@@ -207,58 +197,63 @@ class TestHttpEscalations:
         assert plan["escalate"] is True
         assert plan["escalation_reason"] == "document_mismatch"
 
-    def test_order_status_backend_failure(self, monkeypatch: pytest.MonkeyPatch):
-        _require_fastapi()
-        sid = "http-esc-order-be"
-        client = _client(monkeypatch, "order_status")
-
-        _route(client, sid, "Where is my order?")
-        assert _submit(client, sid, "order_number", "ORD-123456")["accepted"] is True
+    @pytest.mark.parametrize(
+        ("intent", "session_id", "route_text", "field_submits", "exc_msg"),
+        [
+            pytest.param(
+                "order_status",
+                "http-esc-order-be",
+                "Where is my order?",
+                [("order_number", "ORD-123456")],
+                "backend down",
+                id="order_status",
+            ),
+            pytest.param(
+                "cancel_service",
+                "http-esc-cancel-be",
+                "Cancel my subscription.",
+                [
+                    ("account_number", "12345678"),
+                    ("cancellation_reason", "too expensive"),
+                    ("confirm_cancel", "yes"),
+                ],
+                "billing unavailable",
+                id="cancel_service",
+            ),
+            pytest.param(
+                "update_profile",
+                "http-esc-profile-be",
+                "Update my profile.",
+                [
+                    ("account_number", "12345678"),
+                    ("field_to_update", "phone"),
+                    ("new_value", "5551234567"),
+                ],
+                "crm timeout",
+                id="update_profile",
+            ),
+        ],
+    )
+    def test_backend_failure_escalation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        intent: str,
+        session_id: str,
+        route_text: str,
+        field_submits: list[tuple[str, str]],
+        exc_msg: str,
+    ):
+        client = _client(monkeypatch, intent)
+        _route(client, session_id, route_text)
+        for field_name, value in field_submits:
+            assert _submit(client, session_id, field_name, value)["accepted"] is True
 
         monkeypatch.setattr(
             "services.orchestrator.execute_action",
-            lambda action, fields: (_ for _ in ()).throw(RuntimeError("backend down")),
+            lambda action, fields, msg=exc_msg: (_ for _ in ()).throw(RuntimeError(msg)),
         )
-        out = _dispatch(client, sid)
+        out = _dispatch(client, session_id)
         assert out["status"] == "failed"
         assert out["escalate"] is True
         assert out["escalation_reason"] == "backend_failure"
-        assert "backend down" in (out["result"] or "")
-
-    def test_cancel_service_backend_failure(self, monkeypatch: pytest.MonkeyPatch):
-        _require_fastapi()
-        sid = "http-esc-cancel-be"
-        client = _client(monkeypatch, "cancel_service")
-
-        _route(client, sid, "Cancel my subscription.")
-        assert _submit(client, sid, "account_number", "12345678")["accepted"] is True
-        assert _submit(client, sid, "cancellation_reason", "too expensive")["accepted"] is True
-        assert _submit(client, sid, "confirm_cancel", "yes")["accepted"] is True
-
-        monkeypatch.setattr(
-            "services.orchestrator.execute_action",
-            lambda action, fields: (_ for _ in ()).throw(RuntimeError("billing unavailable")),
-        )
-        out = _dispatch(client, sid)
-        assert out["status"] == "failed"
-        assert out["escalate"] is True
-        assert out["escalation_reason"] == "backend_failure"
-
-    def test_update_profile_backend_failure(self, monkeypatch: pytest.MonkeyPatch):
-        _require_fastapi()
-        sid = "http-esc-profile-be"
-        client = _client(monkeypatch, "update_profile")
-
-        _route(client, sid, "Update my profile.")
-        assert _submit(client, sid, "account_number", "12345678")["accepted"] is True
-        assert _submit(client, sid, "field_to_update", "phone")["accepted"] is True
-        assert _submit(client, sid, "new_value", "5551234567")["accepted"] is True
-
-        monkeypatch.setattr(
-            "services.orchestrator.execute_action",
-            lambda action, fields: (_ for _ in ()).throw(RuntimeError("crm timeout")),
-        )
-        out = _dispatch(client, sid)
-        assert out["status"] == "failed"
-        assert out["escalate"] is True
-        assert out["escalation_reason"] == "backend_failure"
+        assert exc_msg in (out["result"] or "")
