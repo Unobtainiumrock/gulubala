@@ -25,6 +25,7 @@ import os
 from typing import Any
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.frames.frames import Frame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
@@ -59,7 +60,7 @@ def build_transport(
     call_sid: str,
 ) -> WebsocketServerTransport:
     """Create a WebSocket transport wired to a Twilio Media Stream."""
-    serializer = TwilioFrameSerializer(
+    serializer = _AutoStreamSidSerializer(
         stream_sid=stream_sid,
         call_sid=call_sid,
         account_sid=TWILIO_ACCOUNT_SID,
@@ -200,12 +201,39 @@ def run_agent_pipeline_sync(
 # Presenter retention agent pipeline
 # ---------------------------------------------------------------------------
 
+class _AutoStreamSidSerializer(TwilioFrameSerializer):
+    """TwilioFrameSerializer that auto-extracts streamSid from the ``start`` event.
+
+    Pipecat's stock serializer ignores the ``start`` event so ``_stream_sid``
+    stays as whatever was passed to the constructor (e.g. ``"pending"``).
+    This subclass intercepts the ``start`` event and updates ``_stream_sid``
+    so outbound ``media`` messages carry the real SID and Twilio actually
+    plays the audio.
+    """
+
+    async def deserialize(self, data: str | bytes) -> Frame | None:
+        import json as _json
+        try:
+            msg = _json.loads(data)
+            if msg.get("event") == "start":
+                sid = msg.get("start", {}).get("streamSid") or msg.get("streamSid")
+                if sid:
+                    self._stream_sid = sid
+                    logger.info("Auto-captured Twilio streamSid=%s", sid)
+                call_sid = msg.get("start", {}).get("callSid")
+                if call_sid:
+                    self._call_sid = call_sid
+        except Exception:
+            pass
+        return await super().deserialize(data)
+
+
 def build_presenter_transport(
     stream_sid: str,
     call_sid: str,
 ) -> WebsocketServerTransport:
     """WebSocket transport for the presenter-side retention agent."""
-    serializer = TwilioFrameSerializer(
+    serializer = _AutoStreamSidSerializer(
         stream_sid=stream_sid,
         call_sid=call_sid,
         account_sid=TWILIO_ACCOUNT_SID,
