@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+from contextlib import asynccontextmanager
+
 try:
     from fastapi import FastAPI, HTTPException
 except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is absent
@@ -51,11 +54,29 @@ def get_service() -> CallCenterService:
     return _SERVICE
 
 
+_logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """On startup: auto-detect ngrok and sync Twilio webhook (best-effort)."""
+    try:
+        from telephony.ngrok import auto_sync
+        result = auto_sync()
+        if result:
+            _logger.info("Twilio webhook auto-synced: %s", result["voice_url"])
+        else:
+            _logger.warning("ngrok not detected — start ngrok before uvicorn, or update Twilio manually.")
+    except Exception as exc:
+        _logger.warning("Twilio webhook sync skipped: %s", exc)
+    yield
+
+
 def create_app():
     if FastAPI is None:
         raise ModuleNotFoundError("FastAPI is not installed. Install requirements to run the HTTP API.")
 
-    app = FastAPI(title="LLM Call Center Agent", version="0.1.0")
+    app = FastAPI(title="LLM Call Center Agent", version="0.1.0", lifespan=_lifespan)
     app.state.get_service = get_service
     app.include_router(ws_router)
     app.include_router(ivr_router)
