@@ -216,13 +216,19 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   setActiveSession: (id) => set({ activeSessionId: id }),
 
   loadCallTree: async (treeId = "acme_corp") => {
-    try {
-      const base = getApiBase();
-      const res = await fetch(`${base}/calltree/${treeId}`);
-      if (!res.ok) return;
-      set({ callTree: await res.json() });
-    } catch {
-      /* silent */
+    const targets = [
+      `/calltree/${treeId}`,
+      `${getApiBase()}/calltree/${treeId}`,
+    ];
+    for (const url of targets) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        set({ callTree: await res.json() });
+        return;
+      } catch {
+        /* try next */
+      }
     }
   },
 }));
