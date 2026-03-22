@@ -36,6 +36,7 @@ from contracts.events import (
     EscalationEvent,
     InfoGatheredEvent,
     InfoRequestedEvent,
+    IvrCallTreePositionEvent,
     TranscriptEvent,
 )
 from contracts.prompts import (
@@ -79,6 +80,11 @@ class NavigatorState:
         self.transcript: list[dict[str, str]] = []
         self.resolved = False
         self.escalated = False
+        self.transcript_turn_seq = 0
+
+    def next_transcript_turn(self) -> int:
+        self.transcript_turn_seq += 1
+        return self.transcript_turn_seq
 
     @property
     def current_node(self) -> CallTreeNode | None:
@@ -131,9 +137,14 @@ class IvrNavigatorProcessor(FrameProcessor):
         self._twilio_call_sid = twilio_call_sid
         self._dashboard = get_manager()
         self._ready_event = ready_event
+        self._initial_position_sent = False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
+
+        if not self._initial_position_sent:
+            self._initial_position_sent = True
+            self._emit_calltree_position()
 
         if not isinstance(frame, TranscriptionFrame):
             await self.push_frame(frame, direction)
@@ -160,6 +171,7 @@ class IvrNavigatorProcessor(FrameProcessor):
                 session_id=self._state.session_id,
                 role="user",
                 content=transcript_text,
+                turn_count=self._state.next_transcript_turn(),
             ))
 
             logger.info("IVR said: %s", transcript_text)
@@ -168,6 +180,7 @@ class IvrNavigatorProcessor(FrameProcessor):
             action = await self._decide(classification)
 
             await self._execute(action)
+            self._emit_calltree_position()
         finally:
             if ready is not None:
                 ready.set()
@@ -258,6 +271,7 @@ class IvrNavigatorProcessor(FrameProcessor):
             session_id=self._state.session_id,
             role="assistant",
             content=dtmf_line,
+            turn_count=self._state.next_transcript_turn(),
         ))
 
         node = self._state.current_node
@@ -279,6 +293,7 @@ class IvrNavigatorProcessor(FrameProcessor):
             session_id=self._state.session_id,
             role="assistant",
             content=text,
+            turn_count=self._state.next_transcript_turn(),
         ))
         await self.push_frame(TextFrame(text=text))
 
@@ -308,6 +323,7 @@ class IvrNavigatorProcessor(FrameProcessor):
             session_id=self._state.session_id,
             role="assistant",
             content=note,
+            turn_count=self._state.next_transcript_turn(),
         ))
 
         logger.info("Requesting info field=%s from presenter", field_name)
@@ -350,6 +366,7 @@ class IvrNavigatorProcessor(FrameProcessor):
             session_id=self._state.session_id,
             role="assistant",
             content=gathered,
+            turn_count=self._state.next_transcript_turn(),
         ))
 
         await self._speak(value)
@@ -414,6 +431,16 @@ class IvrNavigatorProcessor(FrameProcessor):
                 )
 
             threading.Thread(target=_notify, daemon=True).start()
+
+    def _emit_calltree_position(self) -> None:
+        node = self._state.current_node
+        self._emit_event(
+            IvrCallTreePositionEvent(
+                session_id=self._state.session_id,
+                node_id=self._state.current_node_id,
+                label=node.label if node else None,
+            )
+        )
 
     def _emit_event(self, event: Any) -> None:
         self._dashboard.publish_sync(event)
