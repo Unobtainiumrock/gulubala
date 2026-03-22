@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from typing import Any
+from typing import Any, Callable
 
 from actions.backend import execute_action
 from asr.transcribe import transcribe_bytes
@@ -13,6 +13,7 @@ from demo.scenarios import get_demo_scenario, list_demo_scenarios
 from dialogue.manager import WorkflowEngine
 from documents.eigen_adapter import EigenDocumentAdapter
 from intents.router import classify_intent
+from contracts.events import CompletedEvent, EscalationEvent, NodeEnteredEvent, TranscriptEvent
 from services.logging import log_event
 from services.session_store import SessionStore
 from workflows.registry import get_workflow
@@ -27,11 +28,18 @@ class CallCenterService:
         engine: WorkflowEngine | None = None,
         document_adapter: EigenDocumentAdapter | None = None,
         boson_adapter: BosonAdapter | None = None,
+        event_publisher: Callable[[Any], None] | None = None,
     ):
         self.store = store
         self.engine = engine or WorkflowEngine()
         self.document_adapter = document_adapter or EigenDocumentAdapter()
         self.boson_adapter = boson_adapter or BosonAdapter()
+        self._publish = event_publisher
+
+    def _emit(self, event: Any) -> None:
+        """Publish a dashboard event if a publisher is configured."""
+        if self._publish is not None:
+            self._publish(event)
 
     def create_session(self, channel: str = "text", session_id: str | None = None):
         session = self.store.create_session(channel=channel, session_id=session_id)
@@ -155,6 +163,13 @@ class CallCenterService:
             session.action_status = "completed"
             session.action_result = action_result
             session.resolved = True
+            self._emit(CompletedEvent(
+                session_id=session.session_id,
+                intent=session.intent,
+                action_result=action_result if isinstance(action_result, str) else str(action_result),
+                validated_fields=dict(session.validated_fields),
+                turn_count=session.turn_count,
+            ))
             result = {
                 "session_id": session.session_id,
                 "action": workflow.action,
@@ -220,6 +235,12 @@ class CallCenterService:
     def handle_user_turn(self, session_id: str, utterance: str) -> dict[str, Any]:
         session = self.get_session(session_id)
         self.engine.register_user_turn(session, utterance)
+        self._emit(TranscriptEvent(
+            session_id=session.session_id,
+            role="user",
+            content=utterance,
+            turn_count=session.turn_count,
+        ))
         self.store.save_session(session)
 
         if self.engine.detect_human_request(utterance):
@@ -230,6 +251,12 @@ class CallCenterService:
             if not session.escalate:
                 session.escalate = True
                 session.escalation_reason = "user_request_human"
+            self._emit(EscalationEvent(
+                session_id=session.session_id,
+                reason=session.escalation_reason or "user_request_human",
+                intent=session.intent,
+                validated_fields=dict(session.validated_fields),
+            ))
             self.store.save_session(session)
             summary = self.build_escalation_summary(session.session_id)
             session = self.get_session(session.session_id)
@@ -246,6 +273,12 @@ class CallCenterService:
             route = self.route_intent(session.session_id, utterance)
             session = self.get_session(session.session_id)
             if route.get("escalate"):
+                self._emit(EscalationEvent(
+                    session_id=session.session_id,
+                    reason=session.escalation_reason or "low_intent_confidence",
+                    intent=session.intent,
+                    validated_fields=dict(session.validated_fields),
+                ))
                 summary = self.build_escalation_summary(session.session_id)
                 message = (
                     "I am going to connect you with a human specialist so this is handled correctly. "
@@ -257,12 +290,27 @@ class CallCenterService:
                 return self._conversation_response(session, message)
 
         workflow = self._require_workflow(session)
+        prev_fields = list(session.current_fields)
         submissions = self.engine.attempt_multi_field_capture(session, workflow, utterance)
+        if session.current_fields != prev_fields:
+            self._emit(NodeEnteredEvent(
+                session_id=session.session_id,
+                node_fields=list(session.current_fields),
+                intent=session.intent,
+                validated_fields=dict(session.validated_fields),
+                missing_required_fields=list(session.missing_required_fields),
+            ))
         self.store.save_session(session)
         for s in submissions:
             log_event("field_submitted", session, submission=s)
 
         if session.escalate:
+            self._emit(EscalationEvent(
+                session_id=session.session_id,
+                reason=session.escalation_reason or "unknown",
+                intent=session.intent,
+                validated_fields=dict(session.validated_fields),
+            ))
             summary = self.build_escalation_summary(session.session_id)
             session = self.get_session(session.session_id)
             message = f"I am handing this over to a human specialist. {summary['summary']}"
@@ -279,7 +327,16 @@ class CallCenterService:
                 ]
                 message = " ".join(retry_parts)
             else:
+                prev_plan_fields = list(session.current_fields)
                 plan = self.engine.plan_next_step(session, workflow)
+                if session.current_fields != prev_plan_fields:
+                    self._emit(NodeEnteredEvent(
+                        session_id=session.session_id,
+                        node_fields=list(session.current_fields),
+                        intent=session.intent,
+                        validated_fields=dict(session.validated_fields),
+                        missing_required_fields=list(session.missing_required_fields),
+                    ))
                 self.store.save_session(session)
                 if not plan["missing_required_fields"]:
                     dispatch = self.dispatch_action(session.session_id)
@@ -293,6 +350,12 @@ class CallCenterService:
                     message = " ".join(plan["next_questions"]) if plan["next_questions"] else "Please continue."
 
         self.engine.register_assistant_turn(session, message)
+        self._emit(TranscriptEvent(
+            session_id=session.session_id,
+            role="assistant",
+            content=message,
+            turn_count=session.turn_count,
+        ))
         self.store.save_session(session)
         log_event("conversation_turn", session, message=message)
         return self._conversation_response(session, message)
