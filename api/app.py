@@ -10,6 +10,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is a
 
 
 from config.models import SESSION_DB_PATH
+from dashboard.ws import get_manager, router as ws_router
 from ivr.routes import router as ivr_router
 from contracts.api import (
     DemoScenarioResponse,
@@ -43,7 +44,10 @@ _SERVICE: CallCenterService | None = None
 def get_service() -> CallCenterService:
     global _SERVICE
     if _SERVICE is None:
-        _SERVICE = CallCenterService(SQLiteSessionStore(SESSION_DB_PATH))
+        _SERVICE = CallCenterService(
+            SQLiteSessionStore(SESSION_DB_PATH),
+            event_publisher=get_manager().publish_sync,
+        )
     return _SERVICE
 
 
@@ -53,6 +57,7 @@ def create_app():
 
     app = FastAPI(title="LLM Call Center Agent", version="0.1.0")
     app.state.get_service = get_service
+    app.include_router(ws_router)
     app.include_router(ivr_router)
 
     @app.get("/health", response_model=HealthResponse)
