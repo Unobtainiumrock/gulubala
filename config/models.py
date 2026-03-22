@@ -55,3 +55,13 @@ TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_IVR_NUMBER = os.environ.get("TWILIO_IVR_NUMBER", "")
 TWILIO_AGENT_NUMBER = os.environ.get("TWILIO_AGENT_NUMBER", "")
 PRESENTER_PHONE_NUMBER = os.environ.get("PRESENTER_PHONE_NUMBER", "")
+
+# Public base URL for transcript links in SMS (e.g. ngrok). Falls back to NGROK_URL.
+_NGROK = os.environ.get("NGROK_URL", "").strip().rstrip("/")
+_PUBLIC = os.environ.get("PUBLIC_API_BASE_URL", "").strip().rstrip("/")
+PUBLIC_API_BASE_URL = _PUBLIC or _NGROK
+
+# When true, escalation also moves the active IVR call + presenter into a conference.
+TWILIO_ESCALATION_BRIDGE = (
+    os.environ.get("TWILIO_ESCALATION_BRIDGE", "false").lower() == "true"
+)

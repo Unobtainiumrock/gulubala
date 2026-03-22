@@ -53,11 +53,13 @@ class IvrActionResponse(BaseModel):
         "speak",
         "wait",
         "escalate",
+        "complete",
     ]
     dtmf_digits: str | None = None
     speech_text: str | None = None
     reasoning: str | None = None
     escalation_reason: str | None = None
+    completion_summary: str | None = None
 
 
 def _find_json_payload(raw: str) -> str:
@@ -164,6 +166,7 @@ def build_ivr_action_prompt(
         "speech_text": None,
         "reasoning": "Selecting billing menu to reach billing dispute",
         "escalation_reason": None,
+        "completion_summary": None,
     })
     parts = [
         f"[prompt_contract={PROMPT_VERSION}:ivr_action]",
@@ -182,7 +185,9 @@ def build_ivr_action_prompt(
         "- send_dtmf: Press a digit to select a menu option",
         "- speak: Say something to answer a question or provide information",
         "- wait: Stay silent and listen for more",
-        "- escalate: You are stuck and need human help\n",
+        "- escalate: You are stuck and need human help",
+        "- complete: The caller's task is finished (IVR confirmed success or final step done); "
+        "set completion_summary to a short outcome phrase\n",
         f"Return ONLY valid JSON like: {example}",
     ]
     return "\n".join(parts)

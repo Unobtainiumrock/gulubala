@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,6 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is a
 
 
 from calltree.registry import get_call_tree
+from calltree.transcript_store import get_transcript
 from config.models import SESSION_DB_PATH
 from dashboard.ws import get_manager, router as ws_router
 from ivr.routes import router as ivr_router
@@ -66,7 +68,7 @@ async def _lifespan(app: FastAPI):
     """On startup: auto-detect ngrok and sync Twilio webhook (best-effort)."""
     try:
         from telephony.ngrok import auto_sync
-        result = auto_sync()
+        result = await asyncio.to_thread(auto_sync)
         if result:
             _logger.info("Twilio webhook auto-synced: %s", result["voice_url"])
         else:
@@ -88,6 +90,14 @@ def create_app():
     @app.get("/health", response_model=HealthResponse)
     def health():
         return HealthResponse(status="ok")
+
+    @app.get("/transcript/{session_id}")
+    def get_session_transcript(session_id: str):
+        """Return the IVR navigator transcript for a session (Pipecat demo)."""
+        rows = get_transcript(session_id)
+        if not rows:
+            raise HTTPException(status_code=404, detail="Transcript not found.")
+        return {"session_id": session_id, "lines": rows}
 
     @app.get("/demo/scenarios", response_model=list[DemoScenarioResponse])
     def demo_scenarios():
