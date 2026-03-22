@@ -77,6 +77,7 @@ def build_pipeline(
     transport: WebsocketServerTransport,
     *,
     session_id: str,
+    call_sid: str | None = None,
     tree_id: str = "acme_corp",
     task_description: str = "",
     available_fields: dict[str, str] | None = None,
@@ -89,6 +90,7 @@ def build_pipeline(
         tree_id=tree_id,
         task_description=task_description,
         available_fields=available_fields,
+        twilio_call_sid=call_sid,
     )
 
     return Pipeline([
@@ -119,6 +121,7 @@ async def run_agent_pipeline(
     pipeline = build_pipeline(
         transport,
         session_id=session_id,
+        call_sid=call_sid,
         tree_id=tree_id,
         task_description=task_description,
         available_fields=available_fields,

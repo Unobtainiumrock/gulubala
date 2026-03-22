@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Any
 
 from pipecat.audio.dtmf.types import KeypadEntry
 from pipecat.frames.frames import (
-    EndFrame,
     Frame,
     OutputDTMFFrame,
     TextFrame,
@@ -29,7 +29,9 @@ from calltree.models import CallTreeNode, CallTreeSchema
 from calltree.registry import get_call_tree
 from client.eigen import chat_completion
 from config.models import GPT_OSS_MODEL
+from calltree.transcript_store import record_transcript_turn
 from contracts.events import (
+    BridgeActiveEvent,
     CompletedEvent,
     EscalationEvent,
     NodeEnteredEvent,
@@ -43,6 +45,11 @@ from contracts.prompts import (
     parse_contract,
 )
 from dashboard.ws import get_manager
+from telephony.presenter_notify import (
+    notify_completion,
+    notify_escalation,
+    transcript_url_for_session,
+)
 
 logger = logging.getLogger("call_center.navigator")
 
@@ -102,6 +109,7 @@ class IvrNavigatorProcessor(FrameProcessor):
         tree_id: str = "acme_corp",
         task_description: str = "",
         available_fields: dict[str, str] | None = None,
+        twilio_call_sid: str | None = None,
         model: str = GPT_OSS_MODEL,
         **kwargs: Any,
     ):
@@ -116,6 +124,7 @@ class IvrNavigatorProcessor(FrameProcessor):
             available_fields=available_fields or {},
         )
         self._model = model
+        self._twilio_call_sid = twilio_call_sid
         self._dashboard = get_manager()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
@@ -130,6 +139,7 @@ class IvrNavigatorProcessor(FrameProcessor):
             return
 
         self._state.transcript.append({"role": "ivr", "content": transcript_text})
+        record_transcript_turn(self._state.session_id, "ivr", transcript_text)
         self._emit_event(TranscriptEvent(
             session_id=self._state.session_id,
             role="user",
@@ -144,19 +154,20 @@ class IvrNavigatorProcessor(FrameProcessor):
         await self._execute(action)
 
     async def _classify(self, transcript: str) -> IvrClassificationResponse:
-        raw = await asyncio.to_thread(
-            chat_completion,
-            model=self._model,
-            messages=[
-                {"role": "system", "content": IVR_CLASSIFICATION_SYSTEM},
-                {"role": "user", "content": transcript},
-            ],
-            temperature=0.1,
-            max_tokens=256,
-        )
         try:
+            raw = await asyncio.to_thread(
+                chat_completion,
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": IVR_CLASSIFICATION_SYSTEM},
+                    {"role": "user", "content": transcript},
+                ],
+                temperature=0.1,
+                max_tokens=256,
+            )
             return parse_contract(raw, IvrClassificationResponse)
         except Exception:
+            logger.exception("LLM classification failed; falling back to 'error'")
             return IvrClassificationResponse(
                 category="error",
                 confidence=0.0,
@@ -181,22 +192,23 @@ class IvrNavigatorProcessor(FrameProcessor):
             menu_options=menu_options,
             recent_transcript=self._state.transcript[-6:],
         )
-        raw = await asyncio.to_thread(
-            chat_completion,
-            model=self._model,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": "What should I do next?"},
-            ],
-            temperature=0.1,
-            max_tokens=256,
-        )
         try:
+            raw = await asyncio.to_thread(
+                chat_completion,
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": "What should I do next?"},
+                ],
+                temperature=0.1,
+                max_tokens=256,
+            )
             return parse_contract(raw, IvrActionResponse)
         except Exception:
+            logger.exception("LLM action decision failed; falling back to 'wait'")
             return IvrActionResponse(
                 action="wait",
-                reasoning="Failed to parse LLM action response",
+                reasoning="Failed to get LLM action response",
             )
 
     async def _execute(self, action: IvrActionResponse) -> None:
@@ -208,14 +220,18 @@ class IvrNavigatorProcessor(FrameProcessor):
             await self._speak(action.speech_text)
         elif action.action == "escalate":
             await self._escalate(action.escalation_reason or "Agent requested help")
+        elif action.action == "complete":
+            self.mark_completed(action.completion_summary)
         # "wait" → do nothing, let the next IVR prompt come in
 
     async def _send_dtmf(self, digits: str) -> None:
-        self._state.transcript.append({"role": "agent", "content": f"[DTMF: {digits}]"})
+        dtmf_line = f"[DTMF: {digits}]"
+        self._state.transcript.append({"role": "agent", "content": dtmf_line})
+        record_transcript_turn(self._state.session_id, "agent", dtmf_line)
         self._emit_event(TranscriptEvent(
             session_id=self._state.session_id,
             role="assistant",
-            content=f"[DTMF: {digits}]",
+            content=dtmf_line,
         ))
 
         node = self._state.current_node
@@ -238,6 +254,7 @@ class IvrNavigatorProcessor(FrameProcessor):
 
     async def _speak(self, text: str) -> None:
         self._state.transcript.append({"role": "agent", "content": text})
+        record_transcript_turn(self._state.session_id, "agent", text)
         self._emit_event(TranscriptEvent(
             session_id=self._state.session_id,
             role="assistant",
@@ -254,19 +271,53 @@ class IvrNavigatorProcessor(FrameProcessor):
             validated_fields=self._state.available_fields,
         ))
         logger.warning("Navigator escalating: %s", reason)
+
+        bridge = await asyncio.to_thread(
+            notify_escalation,
+            session_id=self._state.session_id,
+            reason=reason,
+            validated_fields=dict(self._state.available_fields),
+            twilio_call_sid=self._twilio_call_sid,
+        )
+        if bridge is not None:
+            self._emit_event(BridgeActiveEvent(
+                session_id=self._state.session_id,
+                conference_name=bridge.conference_name,
+                presenter_call_sid=bridge.presenter_call_sid,
+            ))
+
         await self.push_frame(
             TextFrame(text=f"I need help from a human. {reason}")
         )
 
-    def mark_completed(self, action_result: str | None = None) -> None:
+    def mark_completed(
+        self,
+        action_result: str | None = None,
+        *,
+        notify_presenter: bool = True,
+    ) -> None:
         """Called externally when the task finishes (action dispatched)."""
         self._state.resolved = True
+        url = transcript_url_for_session(self._state.session_id)
         self._emit_event(CompletedEvent(
             session_id=self._state.session_id,
             intent=self._state.current_node.intent if self._state.current_node else None,
             action_result=action_result,
             validated_fields=self._state.available_fields,
+            transcript_url=url,
         ))
+        if notify_presenter:
+            sid = self._state.session_id
+            fields = dict(self._state.available_fields)
+
+            def _notify() -> None:
+                notify_completion(
+                    session_id=sid,
+                    summary=action_result,
+                    validated_fields=fields,
+                )
+
+            threading.Thread(target=_notify, daemon=True).start()
 
     def _emit_event(self, event: Any) -> None:
         self._dashboard.publish_sync(event)

@@ -42,6 +42,16 @@ class EscalationEvent(BaseModel):
     validated_fields: dict[str, str] = Field(default_factory=dict)
 
 
+class BridgeActiveEvent(BaseModel):
+    """Fired when the IVR leg and presenter are joined in a Twilio conference."""
+
+    event_type: Literal["bridge_active"] = "bridge_active"
+    session_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    conference_name: str
+    presenter_call_sid: str
+
+
 class CompletedEvent(BaseModel):
     """Fired when a session resolves successfully."""
 
@@ -52,6 +62,13 @@ class CompletedEvent(BaseModel):
     action_result: str | None = None
     validated_fields: dict[str, str] = Field(default_factory=dict)
     turn_count: int = 0
+    transcript_url: str | None = None
 
 
-DashboardEvent = NodeEnteredEvent | TranscriptEvent | EscalationEvent | CompletedEvent
+DashboardEvent = (
+    NodeEnteredEvent
+    | TranscriptEvent
+    | EscalationEvent
+    | BridgeActiveEvent
+    | CompletedEvent
+)

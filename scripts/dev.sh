@@ -22,9 +22,10 @@ ngrok http "$PORT" --log=stdout --log-level=warn &
 NGROK_PID=$!
 
 echo "[dev] waiting for ngrok tunnel..."
+URL=""
 for i in $(seq 1 15); do
     URL=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null \
-        | python3 -c "import sys,json; ts=json.load(sys.stdin).get('tunnels',[]); print(next((t['public_url'] for t in ts if t['public_url'].startswith('https://')), ''))" 2>/dev/null)
+        | python3 -c "import sys,json; ts=json.load(sys.stdin).get('tunnels',[]); print(next((t['public_url'] for t in ts if t['public_url'].startswith('https://')), ''))" 2>/dev/null) || true
     if [ -n "$URL" ]; then
         echo "[dev] ngrok ready: $URL"
         break
