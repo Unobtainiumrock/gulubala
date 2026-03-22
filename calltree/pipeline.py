@@ -91,9 +91,12 @@ def build_pipeline(
     is ignored and timed ``TranscriptionFrame``s are injected so the demo
     matches the Acme tree without a real IVR on the callee leg.
     """
+    ready_event: asyncio.Event | None = None
     if scripted_ivr_scenario:
+        ready_event = asyncio.Event()
         stt: EigenSTTService | ScriptedIvrSttProcessor = ScriptedIvrSttProcessor(
             get_demo_ivr_script(scripted_ivr_scenario),
+            ready_event=ready_event,
         )
     else:
         stt = EigenSTTService()
@@ -104,6 +107,7 @@ def build_pipeline(
         task_description=task_description,
         available_fields=available_fields,
         twilio_call_sid=call_sid,
+        ready_event=ready_event,
     )
 
     return Pipeline([

@@ -56,8 +56,21 @@ def resolve_gather(session_id: str, field_name: str, value: str) -> bool:
         logger.warning("No pending gather for session=%s field=%s", session_id, field_name)
         return False
 
+    if req.future.done():
+        logger.warning(
+            "Ignoring late gather result session=%s field=%s (future already done)",
+            session_id,
+            field_name,
+        )
+        return False
+
     loop = req.future.get_loop()
-    loop.call_soon_threadsafe(req.future.set_result, value)
+
+    def _safe_set_result(fut: asyncio.Future[str], val: str) -> None:
+        if not fut.done():
+            fut.set_result(val)
+
+    loop.call_soon_threadsafe(_safe_set_result, req.future, value)
     logger.info(
         "Resolved gather session=%s field=%s value=%s",
         session_id, field_name, value[:40],

@@ -46,7 +46,7 @@ from contracts.prompts import (
     parse_contract,
 )
 from dashboard.ws import get_manager
-from telephony.presenter_gather import create_gather_future
+from telephony.presenter_gather import cancel_gather, create_gather_future
 from telephony.presenter_notify import (
     call_presenter_for_info,
     notify_completion,
@@ -114,6 +114,7 @@ class IvrNavigatorProcessor(FrameProcessor):
         available_fields: dict[str, str] | None = None,
         twilio_call_sid: str | None = None,
         model: str = GPT_OSS_MODEL,
+        ready_event: asyncio.Event | None = None,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
@@ -129,6 +130,7 @@ class IvrNavigatorProcessor(FrameProcessor):
         self._model = model
         self._twilio_call_sid = twilio_call_sid
         self._dashboard = get_manager()
+        self._ready_event = ready_event
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
@@ -161,7 +163,11 @@ class IvrNavigatorProcessor(FrameProcessor):
 
         await self._execute(action)
 
+        if self._ready_event is not None:
+            self._ready_event.set()
+
     async def _classify(self, transcript: str) -> IvrClassificationResponse:
+        raw = ""
         try:
             raw = await asyncio.to_thread(
                 chat_completion,
@@ -170,12 +176,12 @@ class IvrNavigatorProcessor(FrameProcessor):
                     {"role": "system", "content": IVR_CLASSIFICATION_SYSTEM},
                     {"role": "user", "content": transcript},
                 ],
-                temperature=0.1,
+                temperature=0,
                 max_tokens=256,
             )
             return parse_contract(raw, IvrClassificationResponse)
         except Exception:
-            logger.exception("LLM classification failed; falling back to 'error'")
+            logger.exception("LLM classification failed (raw=%s); falling back to 'error'", raw[:200] if raw else "N/A")
             return IvrClassificationResponse(
                 category="error",
                 confidence=0.0,
@@ -200,6 +206,7 @@ class IvrNavigatorProcessor(FrameProcessor):
             menu_options=menu_options,
             recent_transcript=self._state.transcript[-6:],
         )
+        raw = ""
         try:
             raw = await asyncio.to_thread(
                 chat_completion,
@@ -208,12 +215,12 @@ class IvrNavigatorProcessor(FrameProcessor):
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": "What should I do next?"},
                 ],
-                temperature=0.1,
+                temperature=0,
                 max_tokens=256,
             )
             return parse_contract(raw, IvrActionResponse)
         except Exception:
-            logger.exception("LLM action decision failed; falling back to 'wait'")
+            logger.exception("LLM action decision failed (raw=%s); falling back to 'wait'", raw[:200] if raw else "N/A")
             return IvrActionResponse(
                 action="wait",
                 reasoning="Failed to get LLM action response",
@@ -278,6 +285,11 @@ class IvrNavigatorProcessor(FrameProcessor):
         """
         from config.models import PUBLIC_API_BASE_URL
 
+        callback_base = PUBLIC_API_BASE_URL
+        if not callback_base:
+            logger.error("PUBLIC_API_BASE_URL not set; cannot call presenter for info")
+            return
+
         self._emit_event(InfoRequestedEvent(
             session_id=self._state.session_id,
             field_name=field_name,
@@ -297,11 +309,6 @@ class IvrNavigatorProcessor(FrameProcessor):
         loop = asyncio.get_running_loop()
         future = create_gather_future(self._state.session_id, field_name, loop)
 
-        callback_base = PUBLIC_API_BASE_URL
-        if not callback_base:
-            logger.error("PUBLIC_API_BASE_URL not set; cannot call presenter for info")
-            return
-
         await asyncio.to_thread(
             call_presenter_for_info,
             session_id=self._state.session_id,
@@ -314,6 +321,7 @@ class IvrNavigatorProcessor(FrameProcessor):
             value = await asyncio.wait_for(future, timeout=60.0)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             logger.warning("Presenter did not provide '%s' in time", field_name)
+            cancel_gather(self._state.session_id, field_name)
             return
 
         self._state.available_fields[field_name] = value

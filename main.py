@@ -212,7 +212,6 @@ def run_demo(
     from calltree.demo_ivr_scripts import DEMO_IVR_SCRIPTS
 
     from config.models import (
-        PIPELINE_STREAM_URL,
         TWILIO_ACCOUNT_SID,
         TWILIO_AUTH_TOKEN,
         TWILIO_IVR_NUMBER,
@@ -248,7 +247,14 @@ def run_demo(
 
     # 5. Check Twilio + pipeline stream prerequisites
     twilio_ready = all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_IVR_NUMBER])
-    stream_ready = bool(PIPELINE_STREAM_URL)
+
+    # Derive stream URL from the ngrok URL — route through the FastAPI WS proxy
+    ngrok_url = os.environ.get("NGROK_URL", "").strip().rstrip("/")
+    if ngrok_url:
+        pipeline_stream_url = ngrok_url.replace("https://", "wss://", 1) + "/ws/twilio-stream"
+    else:
+        pipeline_stream_url = ""
+    stream_ready = bool(pipeline_stream_url)
 
     if not twilio_ready:
         logger.warning(
@@ -257,8 +263,8 @@ def run_demo(
         )
     elif not stream_ready:
         logger.warning(
-            "PIPELINE_STREAM_URL not set. Start a second ngrok tunnel for port 8765 "
-            "and set PIPELINE_STREAM_URL=wss://<tunnel>.ngrok-free.app in .env"
+            "NGROK_URL not set. Start ngrok for port %d and set NGROK_URL or "
+            "pass it via environment.", port,
         )
     try:
         if twilio_ready and stream_ready:
@@ -291,7 +297,7 @@ def run_demo(
 
             call_sid = initiate_stream_call(
                 to=TWILIO_IVR_NUMBER,
-                stream_url=PIPELINE_STREAM_URL,
+                stream_url=pipeline_stream_url,
             )
             logger.info("Twilio call placed: CallSid=%s", call_sid)
             logger.info("Waiting for Twilio Media Stream to connect to pipeline ...")

@@ -60,6 +60,3 @@ PRESENTER_PHONE_NUMBER = os.environ.get("PRESENTER_PHONE_NUMBER", "")
 _NGROK = os.environ.get("NGROK_URL", "").strip().rstrip("/")
 _PUBLIC = os.environ.get("PUBLIC_API_BASE_URL", "").strip().rstrip("/")
 PUBLIC_API_BASE_URL = _PUBLIC or _NGROK
-
-# Pipecat media stream URL (wss:// reachable from Twilio, e.g. via second ngrok tunnel).
-PIPELINE_STREAM_URL = os.environ.get("PIPELINE_STREAM_URL", "")

@@ -1,6 +1,8 @@
 """Eigen AI client wrappers for chat and generate endpoints."""
 
 import os
+import threading
+import time
 
 from dotenv import load_dotenv
 from config.models import EIGEN_BASE_URL, EIGEN_GENERATE_URL, EXTRA_BODY, STOP_SEQUENCES
@@ -8,6 +10,11 @@ from config.models import EIGEN_BASE_URL, EIGEN_GENERATE_URL, EXTRA_BODY, STOP_S
 load_dotenv()
 
 _client = None
+
+# Simple throttle to avoid Eigen 429 rate limits.
+_throttle_lock = threading.Lock()
+_MIN_INTERVAL = 2.0  # seconds between requests
+_last_request_time = 0.0
 
 
 def _get_api_key() -> str:
@@ -41,6 +48,14 @@ def chat_completion(model: str, messages: list, **kwargs) -> str:
 
     Returns the assistant's response text.
     """
+    global _last_request_time
+    with _throttle_lock:
+        now = time.monotonic()
+        wait = _MIN_INTERVAL - (now - _last_request_time)
+        if wait > 0:
+            time.sleep(wait)
+        _last_request_time = time.monotonic()
+
     client = get_client()
     response = client.chat.completions.create(
         model=model,

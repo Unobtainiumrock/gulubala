@@ -8,11 +8,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
     from starlette.staticfiles import StaticFiles
 except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is absent
     FastAPI = None
     HTTPException = RuntimeError
+    WebSocket = None
+    WebSocketDisconnect = None
     StaticFiles = None
 
 
@@ -227,6 +229,53 @@ def create_app():
         if tree is None:
             raise HTTPException(status_code=404, detail=f"Call tree '{tree_id}' not found")
         return tree
+
+    # WebSocket reverse-proxy: forwards Twilio Media Stream to local Pipecat WS
+    @app.websocket("/ws/twilio-stream")
+    async def twilio_stream_proxy(ws: WebSocket):
+        """Proxy Twilio Media Stream WS to the local Pipecat WebSocket server."""
+        import os
+        pipecat_port = int(os.environ.get("PIPELINE_WS_PORT", "8765"))
+        pipecat_url = f"ws://127.0.0.1:{pipecat_port}"
+        await ws.accept()
+
+        # Pipecat WS server starts after the Twilio call is placed — retry for up to 10s
+        import websockets
+        backend_ws = None
+        for attempt in range(20):
+            try:
+                backend_ws = await websockets.connect(pipecat_url)
+                break
+            except (OSError, websockets.exceptions.WebSocketException):
+                await asyncio.sleep(0.5)
+
+        if backend_ws is None:
+            _logger.error("Could not connect to Pipecat WS at %s after retries", pipecat_url)
+            await ws.close(code=1011)
+            return
+
+        async def _fwd_twilio_to_pipecat():
+            try:
+                while True:
+                    data = await ws.receive_text()
+                    await backend_ws.send(data)
+            except (WebSocketDisconnect, Exception):
+                pass
+
+        async def _fwd_pipecat_to_twilio():
+            try:
+                async for msg in backend_ws:
+                    if isinstance(msg, str):
+                        await ws.send_text(msg)
+                    else:
+                        await ws.send_bytes(msg)
+            except (WebSocketDisconnect, Exception):
+                pass
+
+        try:
+            await asyncio.gather(_fwd_twilio_to_pipecat(), _fwd_pipecat_to_twilio())
+        finally:
+            await backend_ws.close()
 
     # Static dashboard — mount after all routes so API paths take priority
     _static_dir = Path(__file__).resolve().parent.parent / "dashboard" / "static"

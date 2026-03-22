@@ -42,7 +42,7 @@ PASSWORD_RESET_LINES: list[tuple[float, str]] = [
     (8.0, "Please hold while I connect you to our password reset specialist."),
     (
         10.0,
-        "Please say or enter your account number now.",
+        "Please say or enter your account ID now.",
     ),
     (
         14.0,

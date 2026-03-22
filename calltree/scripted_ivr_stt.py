@@ -20,11 +20,19 @@ class ScriptedIvrSttProcessor(FrameProcessor):
     audio (common with outbound ``<Connect><Stream>`` calls).
     """
 
-    def __init__(self, lines: list[tuple[float, str]], **kwargs: Any) -> None:
+    def __init__(
+        self,
+        lines: list[tuple[float, str]],
+        *,
+        ready_event: asyncio.Event | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         self._lines = lines
         self._script_task: asyncio.Task[None] | None = None
         self._script_started = False
+        self._ready_for_next = ready_event or asyncio.Event()
+        self._ready_for_next.set()  # first line fires immediately
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
@@ -44,6 +52,8 @@ class ScriptedIvrSttProcessor(FrameProcessor):
     async def _play_script(self) -> None:
         try:
             for delay, text in self._lines:
+                await self._ready_for_next.wait()
+                self._ready_for_next.clear()
                 await asyncio.sleep(delay)
                 logger.info("Scripted IVR: %s", text[:80] + ("..." if len(text) > 80 else ""))
                 await self.push_frame(

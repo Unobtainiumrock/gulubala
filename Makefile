@@ -2,7 +2,6 @@
 
 PYTHON   ?= python3
 PORT_API ?= 8000
-PORT_WS  ?= 8765
 SCENARIO ?= cancel_service
 TREE     ?= acme_corp
 
@@ -20,43 +19,36 @@ setup: ## Install Python dependencies
 # Core commands
 # ---------------------------------------------------------------------------
 
-run: ## One command: start ngrok + wait for tunnels + run demo (Ctrl+C cleans up)
-	@# Kill anything occupying our ports first
-	@for p in $(PORT_API) $(PORT_WS); do \
-		pid=$$(lsof -ti :$$p 2>/dev/null); \
-		if [ -n "$$pid" ]; then \
-			echo "[run] Killing stale process on port $$p (pid $$pid)"; \
-			kill $$pid 2>/dev/null || true; \
-			sleep 0.5; \
-		fi; \
-	done
+run: ## One command: start ngrok + wait for tunnel + run demo (Ctrl+C cleans up)
+	@# Kill anything occupying our port first
+	@pid=$$(lsof -ti :$(PORT_API) 2>/dev/null); \
+	if [ -n "$$pid" ]; then \
+		echo "[run] Killing stale process on port $(PORT_API) (pid $$pid)"; \
+		kill $$pid 2>/dev/null || true; \
+		sleep 0.5; \
+	fi
 	@# Start ngrok in the background
-	@echo "[run] Starting ngrok tunnels (ports $(PORT_API) + $(PORT_WS))..."
-	@ngrok start --all \
-		--config $(NGROK_GLOBAL_CONFIG) \
-		--config ngrok.yml \
-		--log=stdout --log-level=warn &
-	@echo $$! > $(NGROK_PID_FILE)
-	@# Wait up to 15 s for both tunnels to appear
-	@echo "[run] Waiting for ngrok tunnels..."
+	@echo "[run] Starting ngrok tunnel (port $(PORT_API))..."
+	@ngrok start --all --config $(NGROK_GLOBAL_CONFIG) --config ngrok.yml \
+		--log=stdout --log-level=warn & echo $$! > $(NGROK_PID_FILE)
+	@# Wait up to 15 s for the tunnel to appear
+	@echo "[run] Waiting for ngrok tunnel..."
 	@for i in $$(seq 1 15); do \
-		URLS=$$($(PYTHON) scripts/detect_ngrok.py $(PORT_API) $(PORT_WS) 2>/dev/null); \
-		if echo "$$URLS" | grep -q 'NGROK_URL=https' && echo "$$URLS" | grep -q 'PIPELINE_STREAM_URL=wss'; then \
+		URLS=$$($(PYTHON) scripts/detect_ngrok.py $(PORT_API) 2>/dev/null); \
+		if echo "$$URLS" | grep -q 'NGROK_URL=https'; then \
 			break; \
 		fi; \
 		sleep 1; \
 	done
-	@# Detect final URLs and launch the demo
-	@eval $$($(PYTHON) scripts/detect_ngrok.py $(PORT_API) $(PORT_WS) 2>/dev/null) && \
+	@# Detect final URL and launch the demo
+	@eval $$($(PYTHON) scripts/detect_ngrok.py $(PORT_API) 2>/dev/null) && \
 		export PUBLIC_API_BASE_URL="$$NGROK_URL" && \
-		if [ -z "$$NGROK_URL" ] || [ -z "$$PIPELINE_STREAM_URL" ]; then \
-			echo "[run] WARNING: ngrok tunnels not fully detected. Dashboard-only mode."; \
+		if [ -z "$$NGROK_URL" ]; then \
+			echo "[run] WARNING: ngrok tunnel not detected. Dashboard-only mode."; \
 			echo "  NGROK_URL=$$NGROK_URL"; \
-			echo "  PIPELINE_STREAM_URL=$$PIPELINE_STREAM_URL"; \
 		else \
-			echo "[run] Tunnels ready:"; \
+			echo "[run] Tunnel ready:"; \
 			echo "  NGROK_URL=$$NGROK_URL"; \
-			echo "  PIPELINE_STREAM_URL=$$PIPELINE_STREAM_URL"; \
 			echo "  PUBLIC_API_BASE_URL=$$PUBLIC_API_BASE_URL"; \
 		fi && \
 		echo "" && \
@@ -69,14 +61,12 @@ run: ## One command: start ngrok + wait for tunnels + run demo (Ctrl+C cleans up
 		fi; \
 		exit $$EXIT_CODE
 
-stop: ## Kill any leftover ngrok / uvicorn on demo ports
-	@for p in $(PORT_API) $(PORT_WS); do \
-		pid=$$(lsof -ti :$$p 2>/dev/null); \
-		if [ -n "$$pid" ]; then \
-			echo "[stop] Killing pid $$pid on port $$p"; \
-			kill $$pid 2>/dev/null || true; \
-		fi; \
-	done
+stop: ## Kill any leftover ngrok / uvicorn on demo port
+	@pid=$$(lsof -ti :$(PORT_API) 2>/dev/null); \
+	if [ -n "$$pid" ]; then \
+		echo "[stop] Killing pid $$pid on port $(PORT_API)"; \
+		kill $$pid 2>/dev/null || true; \
+	fi
 	@if [ -f $(NGROK_PID_FILE) ]; then \
 		echo "[stop] Killing ngrok (pid $$(cat $(NGROK_PID_FILE)))"; \
 		kill $$(cat $(NGROK_PID_FILE)) 2>/dev/null || true; \
@@ -88,14 +78,13 @@ stop: ## Kill any leftover ngrok / uvicorn on demo ports
 # Standalone targets (when you want manual control)
 # ---------------------------------------------------------------------------
 
-ngrok: ## Start ngrok tunnels in foreground (API + Pipecat stream)
+ngrok: ## Start ngrok tunnel in foreground (API only)
 	ngrok start --all --config $(NGROK_GLOBAL_CONFIG) --config ngrok.yml
 
 demo: ## Run demo (expects ngrok already running)
-	@eval $$($(PYTHON) scripts/detect_ngrok.py $(PORT_API) $(PORT_WS) 2>/dev/null) && \
+	@eval $$($(PYTHON) scripts/detect_ngrok.py $(PORT_API) 2>/dev/null) && \
 		export PUBLIC_API_BASE_URL="$$NGROK_URL" && \
 		echo "  NGROK_URL=$$NGROK_URL" && \
-		echo "  PIPELINE_STREAM_URL=$$PIPELINE_STREAM_URL" && \
 		echo "  PUBLIC_API_BASE_URL=$$PUBLIC_API_BASE_URL" && \
 		echo "" && \
 		$(PYTHON) main.py --demo --scenario $(SCENARIO) --tree $(TREE) --port $(PORT_API)
@@ -118,5 +107,4 @@ print('Twilio SID:      ', 'OK' if m.TWILIO_ACCOUNT_SID else 'NOT SET'); \
 print('Twilio IVR #:    ', m.TWILIO_IVR_NUMBER or 'NOT SET'); \
 print('Twilio Agent #:  ', m.TWILIO_AGENT_NUMBER or 'NOT SET'); \
 print('Presenter #:     ', m.PRESENTER_PHONE_NUMBER or 'NOT SET'); \
-print('Pipeline stream: ', m.PIPELINE_STREAM_URL or 'NOT SET'); \
 print('Public base URL: ', m.PUBLIC_API_BASE_URL or 'NOT SET')"
