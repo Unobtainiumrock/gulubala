@@ -65,3 +65,6 @@ PUBLIC_API_BASE_URL = _PUBLIC or _NGROK
 TWILIO_ESCALATION_BRIDGE = (
     os.environ.get("TWILIO_ESCALATION_BRIDGE", "false").lower() == "true"
 )
+
+# Pipecat media stream URL (wss:// reachable from Twilio, e.g. via second ngrok tunnel).
+PIPELINE_STREAM_URL = os.environ.get("PIPELINE_STREAM_URL", "")
