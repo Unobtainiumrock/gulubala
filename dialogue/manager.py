@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from client.eigen import chat_completion
@@ -16,7 +17,7 @@ from contracts.prompts import (
     build_multi_field_extraction_prompt,
     parse_contract,
 )
-from validation.validators import get_validator, parse_numeric
+from validation.validators import extract_contiguous_digits, get_validator, normalize_digit_tokens, parse_numeric
 
 FieldExtractor = Callable[[FieldDefinition, str], str | None]
 MultiFieldExtractor = Callable[[list[FieldDefinition], str], dict[str, str]]
@@ -120,7 +121,6 @@ class WorkflowEngine:
         if not state.missing_required_fields:
             return []
 
-        # Resolve all missing fields to FieldDefinition objects
         missing_fields = [
             field
             for name in state.missing_required_fields
@@ -129,11 +129,16 @@ class WorkflowEngine:
         if not missing_fields:
             return []
 
+        if len(missing_fields) == 1:
+            single_result = self.attempt_field_capture(state, workflow, utterance)
+            return [single_result] if single_result is not None else []
+
         extracted = self.multi_field_extractor(missing_fields, utterance)
+
         if not extracted:
             return []
 
-        results = []
+        results: list[dict[str, Any]] = []
         for field in missing_fields:
             value = extracted.get(field.name)
             if value is None:
@@ -144,6 +149,27 @@ class WorkflowEngine:
                 return results
 
         return results
+
+    def attempt_field_capture(
+        self,
+        state: SessionState,
+        workflow: WorkflowSchema,
+        utterance: str,
+    ) -> dict[str, Any] | None:
+        """Backward-compatible single-field capture for the first active field."""
+        self.synchronize_state(state, workflow)
+        field_name = state.current_fields[0] if state.current_fields else None
+        if not field_name:
+            return None
+        field = workflow.get_field(field_name)
+        if field is None:
+            return None
+        extracted_value = self._heuristic_extract_field(field, utterance)
+        if extracted_value is None:
+            extracted_value = self.field_extractor(field, utterance)
+        if not extracted_value:
+            return None
+        return self.submit_field(state, workflow, field.name, extracted_value, source="utterance")
 
     def submit_field(
         self,
@@ -206,7 +232,7 @@ class WorkflowEngine:
         field = workflow.get_field(field_name)
         if field is None:
             return validation_error
-        return f"{validation_error} {field.prompt}"
+        return f"I couldn't verify that yet. {validation_error} {field.prompt}"
 
     def evaluate_escalation(self, state: SessionState, workflow: WorkflowSchema) -> str | None:
         if state.escalate and state.escalation_reason:
@@ -315,6 +341,53 @@ class WorkflowEngine:
             return {k: v for k, v in parsed.fields.items() if v is not None}
         except Exception:
             return {}
+
+    def _heuristic_extract_field(self, field: FieldDefinition, utterance: str) -> str | None:
+        text = utterance.strip()
+        lowered = text.lower()
+        if not text:
+            return None
+
+        if field.validator in {"account_number", "verification_code", "phone", "zip_code"}:
+            digits = extract_contiguous_digits(text)
+            return digits or None
+
+        if field.validator == "order_number":
+            match = re.search(r"\b(?=[A-Za-z0-9\-]*\d)[A-Za-z0-9\-]{6,20}\b", text)
+            return match.group(0).upper() if match else None
+
+        if field.validator == "email":
+            match = re.search(r"[^@\s]+@[^@\s]+\.[^@\s]+", text)
+            return match.group(0) if match else None
+
+        if field.validator == "yes_no":
+            words = set(re.findall(r"\b[a-z]+\b", lowered))
+            no_words = words & {"no", "nope", "nah", "negative"}
+            yes_words = words & {"yes", "yeah", "yep", "affirmative", "correct"}
+            if no_words and not yes_words:
+                return "no"
+            if yes_words and not no_words:
+                return "yes"
+            return None
+
+        if field.validator == "profile_field":
+            for option in ("address", "phone", "email", "name"):
+                if option in lowered:
+                    return option
+            return None
+
+        if field.validator == "currency":
+            match = re.search(r"\$?\d+(?:,\d{3})*(?:\.\d{1,2})?", text)
+            return match.group(0) if match else None
+
+        if field.validator == "date":
+            match = re.search(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b", text)
+            return match.group(0) if match else None
+
+        if field.validator == "non_empty":
+            return text
+
+        return None
 
     def _llm_build_summary(self, summary_payload: dict[str, Any]) -> str:
         prompt = build_escalation_summary_prompt(summary_payload)

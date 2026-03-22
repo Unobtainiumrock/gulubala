@@ -1,44 +1,24 @@
-"""Eigen AI client wrapper using OpenAI-compatible API."""
+"""Eigen AI client wrappers for chat and generate endpoints."""
 
-from __future__ import annotations
-
-import base64
-import io
 import os
-from typing import TYPE_CHECKING
 
-import requests
 from dotenv import load_dotenv
-
-from config.models import HIGGS_ASR_MODEL, STOP_SEQUENCES, EXTRA_BODY
-
-if TYPE_CHECKING:
-    from openai import OpenAI
+from config.models import EIGEN_BASE_URL, EIGEN_GENERATE_URL, EXTRA_BODY, STOP_SEQUENCES
 
 load_dotenv()
 
-DEFAULT_BASE_URL = "https://api-web.eigenai.com/api/v1"
-
-_client: OpenAI | None = None
+_client = None
 
 
-def _get_base_url() -> str:
-    return os.environ.get("EIGEN_BASE_URL", DEFAULT_BASE_URL)
-
-
-def _get_api_key() -> str:
-    return os.environ["EIGEN_API_KEY"]
-
-
-def get_client() -> OpenAI:
+def get_client():
     """Return a shared OpenAI client configured for Eigen AI."""
     global _client
     if _client is None:
         from openai import OpenAI
 
         _client = OpenAI(
-            api_key=_get_api_key(),
-            base_url=_get_base_url(),
+            api_key=os.environ["EIGEN_API_KEY"],
+            base_url=EIGEN_BASE_URL,
         )
     return _client
 
@@ -59,39 +39,44 @@ def chat_completion(model: str, messages: list, **kwargs) -> str:
     return response.choices[0].message.content
 
 
-def asr_generate(
-    audio_bytes: bytes,
-    *,
-    model: str = HIGGS_ASR_MODEL,
-    language: str = "English",
-    filename: str = "chunk.wav",
-) -> str:
-    """Transcribe audio via the Eigen ASR multipart /generate endpoint.
+def generate_file(model: str, file_bytes: bytes, filename: str, content_type: str, **form_fields):
+    """Send a multipart file request to the Eigen generate endpoint."""
+    import httpx
 
-    Args:
-        audio_bytes: Raw WAV binary data.
-        model: ASR model identifier.
-        language: Transcription language.
-        filename: Filename hint for the upload.
-
-    Returns:
-        Transcribed text.
-    """
-    base_url = _get_base_url()
-    url = f"{base_url}/generate"
-    headers = {"Authorization": f"Bearer {_get_api_key()}"}
-    files = {"file": (filename, io.BytesIO(audio_bytes), "audio/wav")}
-    data = {"model": model, "language": language}
-
-    resp = requests.post(url, headers=headers, files=files, data=data, timeout=60)
-    resp.raise_for_status()
-
-    body = resp.json()
-    if isinstance(body, dict):
-        return body.get("text", body.get("output", str(body)))
-    return str(body)
+    api_key = os.environ["EIGEN_API_KEY"]
+    with httpx.Client(timeout=60.0) as client:
+        response = client.post(
+            EIGEN_GENERATE_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            data={"model": model, **form_fields},
+            files={
+                "file": (
+                    filename,
+                    file_bytes,
+                    content_type or "application/octet-stream",
+                )
+            },
+        )
+        response.raise_for_status()
+        return response.json()
 
 
-def decode_b64_audio(b64_chunk: str) -> bytes:
-    """Decode a base64-encoded WAV string to raw bytes."""
-    return base64.b64decode(b64_chunk)
+def generate_form(model: str, expect_json: bool = True, **form_fields):
+    """Send a non-file form request to the Eigen generate endpoint."""
+    import httpx
+
+    api_key = os.environ["EIGEN_API_KEY"]
+    multipart_fields = [("model", (None, str(model)))]
+    for key, value in form_fields.items():
+        multipart_fields.append((key, (None, str(value))))
+
+    with httpx.Client(timeout=60.0) as client:
+        response = client.post(
+            EIGEN_GENERATE_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            files=multipart_fields,
+        )
+        response.raise_for_status()
+        if expect_json:
+            return response.json()
+        return response.content

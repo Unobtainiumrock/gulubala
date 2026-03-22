@@ -246,7 +246,7 @@ class TestV7Integration:
         assert "charge_date" in state.validated_fields
         assert "charge_amount" in state.validated_fields
         assert response["resolved"] is True
-        assert "Dispute case opened" in response["message"]
+        assert "dispute has been opened" in response["message"].lower()
 
     def test_billing_dispute_fewer_turns_than_before(self, monkeypatch):
         """Old flow: 5 turns. New flow: 2 turns (intent+reason, then 3 fields)."""

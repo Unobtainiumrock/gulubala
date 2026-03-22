@@ -9,6 +9,20 @@ from typing import Callable
 from contracts.models import ValidatorSpec
 
 ValidatorFn = Callable[[str], tuple[bool, str]]
+_DIGIT_WORDS = {
+    "zero": "0",
+    "oh": "0",
+    "o": "0",
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+}
 
 
 def parse_numeric(value: str | int | float | None) -> float | None:
@@ -26,15 +40,50 @@ def parse_numeric(value: str | int | float | None) -> float | None:
         return None
 
 
+def normalize_digit_tokens(value: str) -> str:
+    """Normalize spaced digits or spoken digit words into a compact numeric string."""
+    tokens = re.findall(r"[A-Za-z]+|\d+", str(value).lower())
+    digits = []
+    for token in tokens:
+        if token.isdigit():
+            digits.append(token)
+        elif token in _DIGIT_WORDS:
+            digits.append(_DIGIT_WORDS[token])
+    return "".join(digits)
+
+
+def extract_contiguous_digits(value: str) -> str:
+    """Extract the longest contiguous run of digit/digit-word tokens.
+
+    Unlike ``normalize_digit_tokens`` (which converts *all* digit words in
+    the utterance), this only returns the longest unbroken sequence of
+    numeric tokens so that surrounding conversational words like "one
+    moment, my account is ..." don't pollute the extracted value.
+    """
+    tokens = re.findall(r"[A-Za-z]+|\d+", str(value).lower())
+    best: list[str] = []
+    current: list[str] = []
+    for token in tokens:
+        if token.isdigit() or token in _DIGIT_WORDS:
+            current.append(_DIGIT_WORDS.get(token, token))
+        else:
+            if len("".join(current)) > len("".join(best)):
+                best = list(current)
+            current = []
+    if len("".join(current)) > len("".join(best)):
+        best = current
+    return "".join(best)
+
+
 def validate_account_number(value: str) -> tuple[bool, str]:
-    cleaned = re.sub(r"[^\d]", "", value)
+    cleaned = normalize_digit_tokens(value)
     if re.fullmatch(r"\d{8,12}", cleaned):
         return True, cleaned
     return False, "Account number should be 8 to 12 digits."
 
 
 def validate_verification_code(value: str) -> tuple[bool, str]:
-    cleaned = re.sub(r"[^\d]", "", value)
+    cleaned = normalize_digit_tokens(value)
     if re.fullmatch(r"\d{6}", cleaned):
         return True, cleaned
     return False, "Verification code should be exactly 6 digits."
@@ -90,7 +139,7 @@ def validate_email(value: str) -> tuple[bool, str]:
 
 
 def validate_phone(value: str) -> tuple[bool, str]:
-    digits = re.sub(r"[^\d]", "", value)
+    digits = normalize_digit_tokens(value)
     if 10 <= len(digits) <= 15:
         return True, digits
     return False, "Please provide a valid phone number."
@@ -114,7 +163,7 @@ def validate_profile_field(value: str) -> tuple[bool, str]:
 
 
 def validate_zip_code(value: str) -> tuple[bool, str]:
-    cleaned = re.sub(r"[^\d]", "", value)
+    cleaned = normalize_digit_tokens(value)
     if re.fullmatch(r"\d{5}", cleaned):
         return True, cleaned
     return False, "Please provide a 5-digit ZIP code."

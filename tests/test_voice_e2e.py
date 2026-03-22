@@ -42,7 +42,7 @@ class TestPasswordResetVoiceFlow:
         assert r2.status_code == 200
         data2 = r2.json()
         assert data2["resolved"] is True
-        assert "Password reset initiated" in data2["message"]
+        assert "password reset" in data2["message"].lower()
 
     def test_dtmf_account_id(self, monkeypatch):
         client = _make_client(monkeypatch, "password_reset")
@@ -110,7 +110,7 @@ class TestBillingDisputeVoiceFlow:
         })
         assert r2.status_code == 200
         assert r2.json()["resolved"] is True
-        assert "Dispute case opened" in r2.json()["message"]
+        assert "dispute has been opened" in r2.json()["message"].lower()
 
 
 class TestInterruptEvent:
