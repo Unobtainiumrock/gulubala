@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 import api.app as app_mod
+import calltree.registry as registry_mod
 from calltree.models import CallTreeSchema
 from calltree.registry import get_call_tree, get_call_tree_node
 from ivr.agent import cleanup_call, process_agent_turn, start_agent_session
@@ -88,6 +93,31 @@ class TestCallTreeSchema:
 
         assert {node.intent for node in agent_nodes} == supported_intents
 
+    def test_get_call_tree_initializes_registry_once_under_concurrency(self, monkeypatch):
+        tree = get_call_tree()
+        assert tree is not None
+
+        load_calls = 0
+        load_calls_lock = threading.Lock()
+
+        monkeypatch.setattr(registry_mod, "_call_trees", {})
+
+        def fake_load_call_trees():
+            nonlocal load_calls
+            time.sleep(0.05)
+            with load_calls_lock:
+                load_calls += 1
+            return {"acme_corp": tree}
+
+        monkeypatch.setattr(registry_mod, "_load_call_trees", fake_load_call_trees)
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(registry_mod.get_call_tree, "acme_corp") for _ in range(8)]
+
+        results = [future.result() for future in futures]
+        assert load_calls == 1
+        assert results == [tree] * 8
+
 
 class TestIvrBridge:
     """DEV-32 coverage for the ephemeral IVR bridge."""
@@ -150,6 +180,9 @@ class TestIvrRoutes:
         assert "Thank you for calling Acme Corp" in response.text
         assert 'action="/ivr/menu?node_id=root"' in response.text
         assert "<Gather" in response.text
+        assert 'timeout="10"' in response.text
+        assert "<Redirect" in response.text
+        assert "/ivr/menu?node_id=root" in response.text
 
     def test_valid_digit_navigates_to_submenu(self, monkeypatch):
         client = _make_client(monkeypatch)
@@ -160,7 +193,7 @@ class TestIvrRoutes:
         assert "billing dispute" in response.text.lower()
         assert 'action="/ivr/menu?node_id=billing_menu"' in response.text
 
-    def test_invalid_digit_repompts_current_menu(self, monkeypatch):
+    def test_invalid_digit_reprompts_current_menu(self, monkeypatch):
         client = _make_client(monkeypatch)
 
         response = client.post("/ivr/menu?node_id=root", data={"Digits": "9"})
@@ -168,6 +201,16 @@ class TestIvrRoutes:
         assert response.status_code == 200
         assert "not a valid selection" in response.text.lower()
         assert 'action="/ivr/menu?node_id=root"' in response.text
+
+    def test_empty_digit_replays_current_menu_without_invalid_prompt(self, monkeypatch):
+        client = _make_client(monkeypatch)
+
+        response = client.post("/ivr/menu?node_id=root", data={})
+
+        assert response.status_code == 200
+        assert "not a valid selection" not in response.text.lower()
+        assert 'action="/ivr/menu?node_id=root"' in response.text
+        assert "<Redirect" in response.text
 
     def test_menu_can_redirect_to_agent_node(self, monkeypatch):
         client = _make_client(monkeypatch)
@@ -206,12 +249,50 @@ class TestIvrRoutes:
         assert second_turn.status_code == 200
         assert "password reset" in second_turn.text.lower()
         assert "<Gather" not in second_turn.text
+        assert "<Hangup" in second_turn.text
 
         cleanup_call(call_sid)
 
-    def test_status_callback_cleans_up_call_state(self, monkeypatch):
+    def test_agent_greeting_returns_404_for_non_agent_node(self, monkeypatch):
         client = _make_client(monkeypatch)
-        call_sid = "ivr-route-2"
+
+        response = client.post("/ivr/agent-greeting?node_id=root", data={"CallSid": "ivr-route-2"})
+
+        assert response.status_code == 404
+        assert "not an agent node" in response.json()["detail"].lower()
+
+    def test_agent_turn_returns_404_for_unknown_call_sid(self, monkeypatch):
+        client = _make_client(monkeypatch)
+
+        response = client.post(
+            "/ivr/agent-turn?node_id=password_reset_agent",
+            data={"CallSid": "missing-call", "SpeechResult": "12345678"},
+        )
+
+        assert response.status_code == 404
+        assert "unknown ivr call" in response.json()["detail"].lower()
+
+    def test_status_callback_ignores_non_terminal_statuses(self, monkeypatch):
+        client = _make_client(monkeypatch)
+        call_sid = "ivr-route-3"
+
+        client.post("/ivr/agent-greeting?node_id=password_reset_agent", data={"CallSid": call_sid})
+        assert get_call_state(call_sid) is not None
+
+        response = client.post(
+            "/ivr/status-callback",
+            data={"CallSid": call_sid, "CallStatus": "in-progress"},
+        )
+
+        assert response.status_code == 200
+        assert response.text.strip() == "<Response />"
+        assert get_call_state(call_sid) is not None
+
+        cleanup_call(call_sid)
+
+    def test_status_callback_cleans_up_call_state_for_terminal_status(self, monkeypatch):
+        client = _make_client(monkeypatch)
+        call_sid = "ivr-route-4"
 
         client.post("/ivr/agent-greeting?node_id=password_reset_agent", data={"CallSid": call_sid})
         assert get_call_state(call_sid) is not None

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from urllib.parse import parse_qs
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -10,8 +9,11 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from calltree.models import CallTreeNode
 from calltree.registry import get_call_tree, get_call_tree_node
 from ivr.agent import cleanup_call, process_agent_turn, start_agent_session
+from services.orchestrator import CallCenterService
 
 router = APIRouter(prefix="/ivr", tags=["ivr"])
+
+_TERMINAL_STATUSES = {"completed", "busy", "failed", "no-answer", "canceled", "cancelled"}
 
 
 def _xml_response(root: Element) -> Response:
@@ -36,11 +38,14 @@ def _build_menu_response(node: CallTreeNode, action_url: str, prefix_prompt: str
             "action": action_url,
             "method": "POST",
             "numDigits": "1",
+            "timeout": "10",
         },
     )
     if prefix_prompt:
         _add_say(gather, prefix_prompt)
     _add_say(gather, node.prompt)
+    redirect = SubElement(root, "Redirect", {"method": "POST"})
+    redirect.text = action_url
     return _xml_response(root)
 
 
@@ -63,6 +68,7 @@ def _build_speech_response(messages: list[str], action_url: str) -> Response:
 def _build_terminal_response(message: str) -> Response:
     root = _response_root()
     _add_say(root, message)
+    SubElement(root, "Hangup")
     return _xml_response(root)
 
 
@@ -73,7 +79,7 @@ def _build_redirect_response(url: str) -> Response:
     return _xml_response(root)
 
 
-def _get_service(request: Request):
+def _get_service(request: Request) -> CallCenterService:
     get_service = getattr(request.app.state, "get_service", None)
     if get_service is None:
         raise HTTPException(status_code=500, detail="IVR service is not configured")
@@ -88,9 +94,8 @@ def _require_node(node_id: str) -> CallTreeNode:
 
 
 async def _read_twilio_form(request: Request) -> dict[str, str]:
-    body = (await request.body()).decode()
-    parsed = parse_qs(body, keep_blank_values=True)
-    return {key: values[-1] for key, values in parsed.items()}
+    form = await request.form()
+    return {key: str(value) for key, value in form.items()}
 
 
 @router.post("/incoming")
@@ -113,6 +118,9 @@ async def menu(request: Request, node_id: str) -> Response:
 
     form = await _read_twilio_form(request)
     digits = str(form.get("Digits", "")).strip()
+    if not digits:
+        return _build_menu_response(node, f"/ivr/menu?node_id={node.id}")
+
     transition = next((item for item in node.transitions if item.input == digits), None)
     if transition is None:
         invalid_prompt = node.invalid_input_prompt or "Sorry, that was not a valid selection."
@@ -133,7 +141,10 @@ async def agent_greeting(request: Request, node_id: str) -> Response:
         raise HTTPException(status_code=400, detail="Missing CallSid")
 
     service = _get_service(request)
-    result = start_agent_session(call_sid, node.id, service)
+    try:
+        result = start_agent_session(call_sid, node.id, service)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _build_speech_response(
         [node.prompt, result["message"]],
         f"/ivr/agent-turn?node_id={node.id}",
@@ -156,7 +167,10 @@ async def agent_turn(request: Request, node_id: str) -> Response:
         )
 
     service = _get_service(request)
-    result = process_agent_turn(call_sid, utterance, service)
+    try:
+        result = process_agent_turn(call_sid, utterance, service)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     if result["resolved"] or result["escalated"]:
         return _build_terminal_response(result["message"])
     return _build_speech_response([result["message"]], f"/ivr/agent-turn?node_id={node_id}")
@@ -166,7 +180,7 @@ async def agent_turn(request: Request, node_id: str) -> Response:
 async def status_callback(request: Request) -> Response:
     form = await _read_twilio_form(request)
     call_sid = str(form.get("CallSid", "")).strip()
-    _call_status = str(form.get("CallStatus", "")).strip()
-    if call_sid:
+    call_status = str(form.get("CallStatus", "")).strip().lower()
+    if call_sid and call_status in _TERMINAL_STATUSES:
         cleanup_call(call_sid)
     return _xml_response(_response_root())
