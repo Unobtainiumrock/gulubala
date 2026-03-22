@@ -98,7 +98,7 @@ dev: ## Dev server (single ngrok tunnel + uvicorn via scripts/dev.sh)
 dashboard-setup: ## Install Next.js dashboard dependencies
 	cd dashboard-ui && npm install
 
-dashboard-dev: ## Start the React dashboard (dev mode, port 3000)
+dashboard-dev: ## Start the React dashboard (dev mode, port 3001)
 	cd dashboard-ui && npm run dev
 
 dashboard-build: ## Production build of React dashboard
