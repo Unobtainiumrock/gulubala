@@ -11,6 +11,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is a
 
 from config.models import SESSION_DB_PATH
 from dashboard.ws import get_manager, router as ws_router
+from ivr.routes import router as ivr_router
 from contracts.api import (
     DemoScenarioResponse,
     DemoStartRequest,
@@ -55,7 +56,9 @@ def create_app():
         raise ModuleNotFoundError("FastAPI is not installed. Install requirements to run the HTTP API.")
 
     app = FastAPI(title="LLM Call Center Agent", version="0.1.0")
+    app.state.get_service = get_service
     app.include_router(ws_router)
+    app.include_router(ivr_router)
 
     @app.get("/health", response_model=HealthResponse)
     def health():
