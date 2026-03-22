@@ -41,7 +41,8 @@ def start_agent_session(call_sid: str, node_id: str, service: CallCenterService)
     service.engine.synchronize_state(session, workflow)
 
     plan = service.engine.plan_next_step(session, workflow)
-    message = " ".join(plan["next_questions"]) if plan["next_questions"] else "Please continue."
+    # One prompt per Twilio <Gather>: speaking multiple questions before listening feels like a barrage.
+    message = plan["next_questions"][0] if plan["next_questions"] else "Please continue."
     last_turn = session.conversation_history[-1] if session.conversation_history else None
     if last_turn is None or last_turn.role != "assistant" or last_turn.content != message:
         service.engine.register_assistant_turn(session, message)
@@ -71,7 +72,11 @@ def process_agent_turn(call_sid: str, utterance: str, service: CallCenterService
     if call_state is None:
         raise KeyError(f"Unknown IVR call '{call_sid}'")
 
-    result = service.handle_user_turn(call_state.agent_session_id, utterance)
+    result = service.handle_user_turn(
+        call_state.agent_session_id,
+        utterance,
+        single_voice_prompt=True,
+    )
     session = service.get_session(call_state.agent_session_id)
     call_state.current_node_id = session.metadata.get("ivr_node_id", call_state.current_node_id)
     save_call_state(call_state)
