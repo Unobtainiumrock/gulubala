@@ -177,7 +177,7 @@ class IvrNavigatorProcessor(FrameProcessor):
                     {"role": "user", "content": transcript},
                 ],
                 temperature=0,
-                max_tokens=256,
+                max_tokens=512,
             )
             return parse_contract(raw, IvrClassificationResponse)
         except Exception:
@@ -216,7 +216,7 @@ class IvrNavigatorProcessor(FrameProcessor):
                     {"role": "user", "content": "What should I do next?"},
                 ],
                 temperature=0,
-                max_tokens=256,
+                max_tokens=512,
             )
             return parse_contract(raw, IvrActionResponse)
         except Exception:

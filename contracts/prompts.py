@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, Field
@@ -65,20 +66,81 @@ class IvrActionResponse(BaseModel):
     field_prompt: str | None = None
 
 
+def _strip_json_trailing_commas(s: str) -> str:
+    """Remove invalid JSON trailing commas before ``}`` or ``]`` (common LLM mistake)."""
+    prev = None
+    out = s
+    while prev != out:
+        prev = out
+        out = re.sub(r",(\s*})", r"\1", out)
+        out = re.sub(r",(\s*\])", r"\1", out)
+    return out
+
+
+def _extract_first_balanced_object(raw: str) -> str | None:
+    """Return the first ``{...}`` span with balanced braces, respecting string escapes."""
+    start = raw.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    i = start
+    while i < len(raw):
+        c = raw[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif c == "\\":
+                escape = True
+            elif c == '"':
+                in_string = False
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+            i += 1
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start : i + 1]
+        i += 1
+    return None
+
+
 def _find_json_payload(raw: str) -> str:
+    """Parse JSON from model output; tolerate markdown, trailing commas, and extra text."""
     raw = raw.strip()
-    try:
-        json.loads(raw)
-        return raw
-    except json.JSONDecodeError:
-        pass
+    candidates: list[str] = []
+    if raw:
+        candidates.append(raw)
+
+    balanced = _extract_first_balanced_object(raw)
+    if balanced:
+        candidates.append(balanced)
 
     start = raw.find("{")
     end = raw.rfind("}")
     if start != -1 and end != -1 and end > start:
-        candidate = raw[start : end + 1]
-        json.loads(candidate)
-        return candidate
+        candidates.append(raw[start : end + 1])
+
+    seen: set[str] = set()
+    for cand in candidates:
+        c = cand.strip()
+        if not c or c in seen:
+            continue
+        seen.add(c)
+        for variant in (c, _strip_json_trailing_commas(c)):
+            if not variant:
+                continue
+            try:
+                json.loads(variant)
+                return variant
+            except json.JSONDecodeError:
+                continue
     raise ValueError("No JSON object found in model response")
 
 
@@ -151,6 +213,7 @@ def build_ivr_classification_prompt() -> str:
         f"Categories: {json.dumps(categories)}\n"
         "If category is 'menu', extract the available options as a digit-to-label mapping.\n"
         "If category is 'info_request', identify what information is being requested.\n"
+        "Do not use trailing commas before closing braces. "
         f"Return ONLY valid JSON like: {example}"
     )
 
