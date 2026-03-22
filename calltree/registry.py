@@ -4,26 +4,31 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from threading import Lock
 
 from calltree.models import CallTreeNode, CallTreeSchema
 
 _SCHEMA_DIR = Path(__file__).parent / "schemas"
 _call_trees: dict[str, CallTreeSchema] = {}
+_LOCK = Lock()
 
 
-def _load_call_trees() -> None:
-    global _call_trees
+def _load_call_trees() -> dict[str, CallTreeSchema]:
+    call_trees: dict[str, CallTreeSchema] = {}
     for schema_file in _SCHEMA_DIR.glob("*.json"):
         with open(schema_file) as f:
             raw_schema = json.load(f)
         schema = CallTreeSchema.model_validate(raw_schema)
-        _call_trees[schema.id] = schema
+        call_trees[schema.id] = schema
+    return call_trees
 
 
 def get_call_tree(tree_id: str = "acme_corp") -> CallTreeSchema | None:
     """Retrieve a call tree by id."""
     if not _call_trees:
-        _load_call_trees()
+        with _LOCK:
+            if not _call_trees:
+                _call_trees.update(_load_call_trees())
     return _call_trees.get(tree_id)
 
 

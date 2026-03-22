@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 from workflows.registry import list_intents
 
@@ -56,6 +56,7 @@ class CallTreeSchema(BaseModel):
     brand: str
     root_node_id: str
     nodes: list[CallTreeNode]
+    _node_map: dict[str, CallTreeNode] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_schema(self) -> "CallTreeSchema":
@@ -87,10 +88,8 @@ class CallTreeSchema(BaseModel):
                         f"Node '{node.id}' references unknown next node '{transition.next_node_id}'"
                     )
 
+        self._node_map = {node.id: node for node in self.nodes}
         return self
 
     def get_node(self, node_id: str) -> CallTreeNode | None:
-        for node in self.nodes:
-            if node.id == node_id:
-                return node
-        return None
+        return self._node_map.get(node_id)
