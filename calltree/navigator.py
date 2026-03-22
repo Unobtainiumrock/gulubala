@@ -139,32 +139,38 @@ class IvrNavigatorProcessor(FrameProcessor):
             await self.push_frame(frame, direction)
             return
 
-        transcript_text = frame.text.strip()
-        if not transcript_text:
-            return
+        # ScriptedIvrSttProcessor waits on this event after each line; always set
+        # on any TranscriptionFrame outcome (empty text, already resolved, errors).
+        ready = self._ready_event
+        try:
+            transcript_text = frame.text.strip()
+            if not transcript_text:
+                return
 
-        if self._state.resolved or self._state.escalated:
-            logger.debug("Ignoring IVR frame — session already %s",
-                         "resolved" if self._state.resolved else "escalated")
-            return
+            if self._state.resolved or self._state.escalated:
+                logger.debug(
+                    "Ignoring IVR frame — session already %s",
+                    "resolved" if self._state.resolved else "escalated",
+                )
+                return
 
-        self._state.transcript.append({"role": "ivr", "content": transcript_text})
-        record_transcript_turn(self._state.session_id, "ivr", transcript_text)
-        self._emit_event(TranscriptEvent(
-            session_id=self._state.session_id,
-            role="user",
-            content=transcript_text,
-        ))
+            self._state.transcript.append({"role": "ivr", "content": transcript_text})
+            record_transcript_turn(self._state.session_id, "ivr", transcript_text)
+            self._emit_event(TranscriptEvent(
+                session_id=self._state.session_id,
+                role="user",
+                content=transcript_text,
+            ))
 
-        logger.info("IVR said: %s", transcript_text)
+            logger.info("IVR said: %s", transcript_text)
 
-        classification = await self._classify(transcript_text)
-        action = await self._decide(classification)
+            classification = await self._classify(transcript_text)
+            action = await self._decide(classification)
 
-        await self._execute(action)
-
-        if self._ready_event is not None:
-            self._ready_event.set()
+            await self._execute(action)
+        finally:
+            if ready is not None:
+                ready.set()
 
     async def _classify(self, transcript: str) -> IvrClassificationResponse:
         raw = ""

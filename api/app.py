@@ -272,10 +272,27 @@ def create_app():
             except (WebSocketDisconnect, Exception):
                 pass
 
+        # If one side exits, cancel the other — plain gather() would leave the
+        # survivor blocked on receive forever and never run ``finally`` cleanup.
+        twilio_task = asyncio.create_task(_fwd_twilio_to_pipecat())
+        pipecat_task = asyncio.create_task(_fwd_pipecat_to_twilio())
         try:
-            await asyncio.gather(_fwd_twilio_to_pipecat(), _fwd_pipecat_to_twilio())
+            _done, pending = await asyncio.wait(
+                (twilio_task, pipecat_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+            await asyncio.gather(twilio_task, pipecat_task, return_exceptions=True)
         finally:
-            await backend_ws.close()
+            try:
+                await backend_ws.close()
+            except Exception:
+                pass
+            try:
+                await ws.close()
+            except Exception:
+                pass
 
     # Static dashboard — mount after all routes so API paths take priority
     _static_dir = Path(__file__).resolve().parent.parent / "dashboard" / "static"
