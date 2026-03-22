@@ -261,12 +261,17 @@ async def run_presenter_pipeline(
         session_id, call_sid,
     )
 
-    # Send the greeting after the Twilio stream connects.
-    # Twilio plays the <Say> intro (~6s), rings the presenter (~3s),
-    # then establishes the WebSocket stream. We need to wait for all
-    # of that before pushing audio.
+    # Send the greeting only after a Twilio WebSocket client connects.
+    client_connected = asyncio.Event()
+
+    @transport.event_handler("on_client_connected")
+    async def _on_connected(transport_ref, websocket):
+        client_connected.set()
+
     async def _send_greeting():
-        await asyncio.sleep(10.0)
+        # Wait for actual WebSocket connection, then a short pause
+        await client_connected.wait()
+        await asyncio.sleep(1.5)
         await agent.send_greeting()
 
     asyncio.create_task(_send_greeting())

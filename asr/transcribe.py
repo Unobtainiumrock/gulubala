@@ -19,7 +19,7 @@ def _extract_text(payload: Any) -> str:
     if not isinstance(payload, dict):
         raise ValueError(f"Unsupported ASR response type: {type(payload).__name__}")
 
-    for key in ("text", "transcript", "output", "response"):
+    for key in ("text", "transcript", "transcription", "output", "response"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
