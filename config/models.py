@@ -48,3 +48,10 @@ REDACT_FIELD_HINTS = (
 # Demo branding
 DEMO_BRAND_NAME = os.environ.get("DEMO_BRAND_NAME", "Callit-Dev")
 DEMO_TTS_VOICE = os.environ.get("DEMO_TTS_VOICE", "Linda")
+
+# Twilio integration
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_IVR_NUMBER = os.environ.get("TWILIO_IVR_NUMBER", "")
+TWILIO_AGENT_NUMBER = os.environ.get("TWILIO_AGENT_NUMBER", "")
+PRESENTER_PHONE_NUMBER = os.environ.get("PRESENTER_PHONE_NUMBER", "")
