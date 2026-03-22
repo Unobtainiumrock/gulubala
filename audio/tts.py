@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 from client.eigen import generate_form
-from config.models import DEMO_TTS_VOICE, HIGGS_TTS_MODEL
+from config.models import DEMO_TTS_VOICE, DEMO_VOICE_ID, HIGGS_TTS_MODEL
 
 
 _DATE_PATTERNS = (
@@ -195,15 +195,29 @@ def build_voice_response(session_id: str, text: str, voice: str = DEMO_TTS_VOICE
     }
 
 
-def synthesize_speech(text: str, voice: str = DEMO_TTS_VOICE) -> bytes:
-    """Generate WAV audio for a short assistant response."""
+def synthesize_speech(
+    text: str,
+    voice: str = DEMO_TTS_VOICE,
+    voice_id: str | None = None,
+) -> bytes:
+    """Generate WAV audio for a short assistant response.
+
+    When *voice_id* is provided (from a cloned voice upload) it is sent
+    instead of the named *voice* string.
+    """
     normalized_text = normalize_tts_text(text)
     sampling = json.dumps({"temperature": 0.85, "top_p": 0.95, "top_k": 50})
+    voice_kwargs: dict[str, str] = {}
+    effective_voice_id = voice_id or DEMO_VOICE_ID
+    if effective_voice_id:
+        voice_kwargs["voice_id"] = effective_voice_id
+    else:
+        voice_kwargs["voice"] = voice
     return generate_form(
         model=HIGGS_TTS_MODEL,
         text=normalized_text,
-        voice=voice,
         stream="false",
         sampling=sampling,
         expect_json=False,
+        **voice_kwargs,
     )

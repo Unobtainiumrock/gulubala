@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - older pipecat
         return fn
 
 from audio.tts import synthesize_speech
-from config.models import DEMO_TTS_VOICE, HIGGS_TTS_MODEL, SAMPLE_RATE
+from config.models import DEMO_TTS_VOICE, DEMO_VOICE_ID, HIGGS_TTS_MODEL, SAMPLE_RATE
 
 
 def _wav_bytes_to_pcm_mono(wav_bytes: bytes) -> tuple[bytes, int]:
@@ -53,6 +53,7 @@ class EigenTTSService(TTSService):
         *,
         sample_rate: int = SAMPLE_RATE,
         voice: str | None = None,
+        voice_id: str | None = None,
         model: str | None = None,
         **kwargs,
     ):
@@ -68,6 +69,7 @@ class EigenTTSService(TTSService):
             settings=settings,
             **kwargs,
         )
+        self._voice_id = voice_id or DEMO_VOICE_ID or None
 
     def can_generate_metrics(self) -> bool:
         return False
@@ -85,6 +87,7 @@ class EigenTTSService(TTSService):
                 synthesize_speech,
                 text,
                 voice,
+                self._voice_id,
             )
             pcm, rate = await asyncio.to_thread(_wav_bytes_to_pcm_mono, wav_bytes)
         except Exception as exc:

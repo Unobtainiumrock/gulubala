@@ -5,7 +5,14 @@ import threading
 import time
 
 from dotenv import load_dotenv
-from config.models import EIGEN_BASE_URL, EIGEN_GENERATE_URL, EXTRA_BODY, STOP_SEQUENCES
+from config.models import (
+    EIGEN_BASE_URL,
+    EIGEN_GENERATE_URL,
+    EIGEN_UPLOAD_URL,
+    EXTRA_BODY,
+    HIGGS_TTS_MODEL,
+    STOP_SEQUENCES,
+)
 
 load_dotenv()
 
@@ -87,6 +94,38 @@ def generate_file(model: str, file_bytes: bytes, filename: str, content_type: st
         )
         response.raise_for_status()
         return response.json()
+
+
+def upload_voice_reference(audio_file_path: str) -> str:
+    """Upload a voice reference file and return a persistent voice_id.
+
+    The file (WAV or MP3) is sent to Eigen's upload endpoint.
+    Returns the ``voice_id`` string for use in subsequent TTS calls.
+    """
+    import mimetypes
+    import httpx
+
+    mime, _ = mimetypes.guess_type(audio_file_path)
+    if mime is None:
+        mime = "audio/wav"
+
+    api_key = _get_api_key()
+    with open(audio_file_path, "rb") as f:
+        file_bytes = f.read()
+
+    with httpx.Client(timeout=120.0) as client:
+        response = client.post(
+            EIGEN_UPLOAD_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            data={"model": HIGGS_TTS_MODEL},
+            files={"voice_reference_file": (os.path.basename(audio_file_path), file_bytes, mime)},
+        )
+        response.raise_for_status()
+        data = response.json()
+    voice_id = data.get("voice_id") or data.get("id")
+    if not voice_id:
+        raise ValueError(f"Eigen upload response did not contain a voice_id: {data}")
+    return voice_id
 
 
 def generate_form(model: str, expect_json: bool = True, **form_fields):
