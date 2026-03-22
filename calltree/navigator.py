@@ -18,6 +18,7 @@ from typing import Any
 
 from pipecat.audio.dtmf.types import KeypadEntry
 from pipecat.frames.frames import (
+    EndFrame,
     Frame,
     OutputDTMFFrame,
     TextFrame,
@@ -77,6 +78,47 @@ def _run_presenter_pipeline_in_thread(session_id: str, fields: dict[str, str]) -
         logging.getLogger("call_center.navigator").exception(
             "Presenter retention pipeline crashed session=%s", session_id,
         )
+
+
+def _launch_retention_agent(session_id: str, fields: dict[str, str], stream_url: str) -> None:
+    """Background thread: start presenter pipeline, wait for IVR to close, then call presenter.
+
+    Sequence:
+    1. Start the Pipecat retention agent pipeline (port 8766)
+    2. Wait for the IVR pipeline to shut down (frees ngrok WebSocket slot)
+    3. Place the Twilio call to the presenter with <Connect><Stream>
+    """
+    import time
+    from telephony.presenter_notify import call_presenter_to_agent
+
+    log = logging.getLogger("call_center.navigator")
+
+    # 1. Start presenter pipeline in a sub-thread (it blocks on its own event loop)
+    import threading
+    pipeline_thread = threading.Thread(
+        target=_run_presenter_pipeline_in_thread,
+        args=(session_id, fields),
+        daemon=True,
+    )
+    pipeline_thread.start()
+
+    # 2. Wait for IVR pipeline to shut down + presenter pipeline to start.
+    #    EndFrame was pushed, IVR WebSocket closes, ngrok slot frees up.
+    #    Presenter pipeline needs ~1s to bind port 8766.
+    log.info("Waiting for IVR pipeline to close and presenter pipeline to start...")
+    time.sleep(5.0)
+
+    # 3. Call the presenter — Twilio plays <Say> intro (~6s), then connects
+    #    the <Stream> WebSocket. By now ngrok's slot is free.
+    try:
+        call_sid = call_presenter_to_agent(
+            session_id=session_id,
+            stream_url=stream_url,
+            validated_fields=fields,
+        )
+        log.info("Presenter retention agent call placed call_sid=%s", call_sid)
+    except Exception:
+        log.exception("Failed to call presenter for retention agent session=%s", session_id)
 
 
 class NavigatorState:
@@ -446,51 +488,44 @@ class IvrNavigatorProcessor(FrameProcessor):
             )
 
     async def _escalate_to_retention_agent(self, reason: str) -> None:
-        """Demo escalation: call presenter into a conversational AI agent."""
+        """Demo escalation: call presenter into a conversational AI agent.
+
+        Ngrok free tier only supports one concurrent WebSocket, so we must
+        shut down the IVR pipeline first to free the slot before the
+        presenter stream can connect.  Everything after EndFrame runs in
+        a background thread because the pipeline shuts down.
+        """
         from config.models import PUBLIC_API_BASE_URL
-        from calltree.pipeline import run_presenter_pipeline
-        from telephony.presenter_notify import call_presenter_to_agent
 
         base = (PUBLIC_API_BASE_URL or "").rstrip("/")
         if not base:
             logger.error("PUBLIC_API_BASE_URL not set; cannot start retention agent")
             return
 
-        # Use a sub-path of /ws/twilio-stream so both WebSockets go
-        # through the single ngrok tunnel (free tier blocks separate paths).
         stream_url = base.replace("https://", "wss://").replace("http://", "ws://")
         stream_url += "/ws/twilio-stream/presenter"
 
         fields = dict(self._state.available_fields)
         session_id = self._state.session_id
 
-        # Start the retention agent pipeline in a background thread
-        # (it runs its own asyncio event loop)
+        # Launch everything in a background thread — the IVR pipeline is
+        # about to shut down (EndFrame), so we can't rely on this event loop.
         import threading
-        pipeline_thread = threading.Thread(
-            target=_run_presenter_pipeline_in_thread,
-            args=(session_id, fields),
+        threading.Thread(
+            target=_launch_retention_agent,
+            args=(session_id, fields, stream_url),
             daemon=True,
-        )
-        pipeline_thread.start()
-
-        # Give the pipeline a moment to start its WebSocket server
-        await asyncio.sleep(1.0)
-
-        # Call the presenter and connect them to the retention agent stream
-        call_sid = await asyncio.to_thread(
-            call_presenter_to_agent,
-            session_id=session_id,
-            stream_url=stream_url,
-            validated_fields=fields,
-        )
-        logger.info("Presenter connected to retention agent call_sid=%s", call_sid)
+        ).start()
 
         self._emit_event(BridgeActiveEvent(
             session_id=session_id,
             conference_name=f"retention_agent_{session_id[:12]}",
-            presenter_call_sid=call_sid,
+            presenter_call_sid="pending",
         ))
+
+        # Shut down the IVR pipeline to free ngrok's single WebSocket slot.
+        logger.info("Closing IVR pipeline to free ngrok WebSocket slot")
+        await self.push_frame(EndFrame())
 
     def mark_completed(
         self,
