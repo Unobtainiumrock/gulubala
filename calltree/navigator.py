@@ -138,6 +138,7 @@ class IvrNavigatorProcessor(FrameProcessor):
         self._dashboard = get_manager()
         self._ready_event = ready_event
         self._initial_position_sent = False
+        self._demo_force_human_flows = demo_force_human_flows
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
@@ -178,6 +179,14 @@ class IvrNavigatorProcessor(FrameProcessor):
 
             classification = await self._classify(transcript_text)
             action = await self._decide(classification)
+            action = apply_demo_human_flow_overrides(
+                enabled=self._demo_force_human_flows,
+                transcript_text=transcript_text,
+                classification_category=classification.category,
+                available_fields=self._state.available_fields,
+                escalated=self._state.escalated,
+                action=action,
+            )
 
             await self._execute(action)
             self._emit_calltree_position()

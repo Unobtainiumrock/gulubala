@@ -56,6 +56,13 @@ TWILIO_IVR_NUMBER = os.environ.get("TWILIO_IVR_NUMBER", "")
 TWILIO_AGENT_NUMBER = os.environ.get("TWILIO_AGENT_NUMBER", "")
 PRESENTER_PHONE_NUMBER = os.environ.get("PRESENTER_PHONE_NUMBER", "")
 
+# Scripted cancel_service demo: force presenter gather + retention bridge (default on).
+DEMO_FORCE_HUMAN_FLOWS = os.environ.get("DEMO_FORCE_HUMAN_FLOWS", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
 # Public base URL for transcript links in SMS (e.g. ngrok). Falls back to NGROK_URL.
 _NGROK = os.environ.get("NGROK_URL", "").strip().rstrip("/")
 _PUBLIC = os.environ.get("PUBLIC_API_BASE_URL", "").strip().rstrip("/")
