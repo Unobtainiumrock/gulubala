@@ -2,7 +2,11 @@ import audio.tts as tts_mod
 import pytest
 
 from contracts.models import ConversationTurn, SessionState
-from contracts.prompts import IntentExtractionResponse, parse_contract
+from contracts.prompts import (
+    IntentExtractionResponse,
+    IvrClassificationResponse,
+    parse_contract,
+)
 from audio.tts import build_ssml, build_voice_response, normalize_tts_text, realize_spoken_text
 from validation.validators import (
     get_validator,
@@ -33,6 +37,27 @@ def test_prompt_contract_parsing_round_trip():
 
     assert parsed.intent == "password_reset"
     assert parsed.confidence == 0.91
+
+
+def test_ivr_classification_accepts_trailing_comma_before_closing_brace():
+    raw = """{
+  "category": "menu",
+  "confidence": 0.99,
+  "options": {"1": "Billing", "2": "Account services", "3": "Order support"},
+  "requested_info": null,
+  "transcript_snippet": "Press 1 for billing",
+}"""
+    parsed = parse_contract(raw, IvrClassificationResponse)
+    assert parsed.category == "menu"
+    assert parsed.options is not None
+    assert parsed.options.get("1") == "Billing"
+
+
+def test_ivr_classification_parses_json_after_preamble():
+    raw = """Here is the analysis:
+{"category": "menu", "confidence": 1.0, "options": {"1": "X"}, "requested_info": null, "transcript_snippet": "hi"}"""
+    parsed = parse_contract(raw, IvrClassificationResponse)
+    assert parsed.category == "menu"
 
 
 def test_session_state_serialization_round_trip():

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import argparse
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -108,14 +113,27 @@ def run_api_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = False
 # Demo mode
 # ---------------------------------------------------------------------------
 
+def _build_demo_task_description(scenario: str, fields: dict[str, str]) -> str:
+    return (
+        f"Demo scenario '{scenario}'. Navigate the Acme Corp phone tree to complete the intent. "
+        f"Pre-filled CRM fields (use these values; do not invent different ones): {fields!r}. "
+        "If the IVR asks for a value you do not have under those keys, use action request_info "
+        "so a human can be called and answer by voice. "
+        "If a live human agent is speaking on the call (not a recording), use action escalate "
+        "so they can be conferenced in with the account holder."
+    )
+
+
 _DEMO_FIELD_DEFAULTS: dict[str, dict[str, str]] = {
+    # Full required set — no presenter Gather call for this scenario.
     "password_reset": {
-        "account_number": "12345678",
+        "account_id": "12345678",
         "verification_code": "123456",
     },
+    # Omit cancellation_reason: IVR asks in open-ended language; Twilio Gather
+    # captures a natural spoken answer (e.g. "we're switching vendors").
     "cancel_service": {
         "account_number": "12345678",
-        "cancellation_reason": "consolidating vendors",
         "confirm_cancel": "yes",
     },
 }
@@ -174,19 +192,26 @@ def _print_ws_event(evt: dict[str, Any]) -> None:
         print(f"  [COMPLETED] {evt.get('action_result', 'done')}  (session {sid})")
     elif etype == "bridge_active":
         print(f"  [BRIDGE] Conference {evt.get('conference_name', '')} active")
+    elif etype == "info_requested":
+        print(f"  [INFO] Asking presenter for {evt.get('field_name', '')}: {evt.get('field_prompt', '')}")
+    elif etype == "info_gathered":
+        print(f"  [INFO] Got {evt.get('field_name', '')} = {evt.get('value', '')}")
 
 
 def run_demo(
     host: str = "0.0.0.0",
     port: int = 8000,
-    scenario: str = "password_reset",
+    scenario: str = "cancel_service",
     tree_id: str = "acme_corp",
+    *,
+    live_ivr: bool = False,
 ) -> None:
     """Launch the full demo stack: API + dashboard + outbound call."""
     import uvicorn
 
+    from calltree.demo_ivr_scripts import DEMO_IVR_SCRIPTS
+
     from config.models import (
-        PIPELINE_STREAM_URL,
         TWILIO_ACCOUNT_SID,
         TWILIO_AUTH_TOKEN,
         TWILIO_IVR_NUMBER,
@@ -222,7 +247,14 @@ def run_demo(
 
     # 5. Check Twilio + pipeline stream prerequisites
     twilio_ready = all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_IVR_NUMBER])
-    stream_ready = bool(PIPELINE_STREAM_URL)
+
+    # Derive stream URL from the ngrok URL — route through the FastAPI WS proxy
+    ngrok_url = os.environ.get("NGROK_URL", "").strip().rstrip("/")
+    if ngrok_url:
+        pipeline_stream_url = ngrok_url.replace("https://", "wss://", 1) + "/ws/twilio-stream"
+    else:
+        pipeline_stream_url = ""
+    stream_ready = bool(pipeline_stream_url)
 
     if not twilio_ready:
         logger.warning(
@@ -231,15 +263,30 @@ def run_demo(
         )
     elif not stream_ready:
         logger.warning(
-            "PIPELINE_STREAM_URL not set. Start a second ngrok tunnel for port 8765 "
-            "and set PIPELINE_STREAM_URL=wss://<tunnel>.ngrok-free.app in .env"
+            "NGROK_URL not set. Start ngrok for port %d and set NGROK_URL or "
+            "pass it via environment.", port,
         )
     try:
         if twilio_ready and stream_ready:
             # 6. Initiate the outbound call
             session_id = uuid.uuid4().hex
-            available_fields = _DEMO_FIELD_DEFAULTS.get(scenario, {})
-            task_desc = f"Demo scenario '{scenario}' with fields: {available_fields}"
+            available_fields = dict(_DEMO_FIELD_DEFAULTS.get(scenario, {}))
+            task_desc = _build_demo_task_description(scenario, available_fields)
+            env_live = os.environ.get("DEMO_LIVE_IVR", "").lower() in ("1", "true", "yes")
+            use_scripted = not (live_ivr or env_live)
+            scripted = (
+                scenario
+                if use_scripted and scenario in DEMO_IVR_SCRIPTS
+                else None
+            )
+            if scripted:
+                logger.info(
+                    "Using scripted IVR audio for scenario %r "
+                    "(disable with --live-ivr or DEMO_LIVE_IVR=1).",
+                    scenario,
+                )
+            else:
+                logger.info("Using live STT from the phone call.")
 
             logger.info("Initiating outbound call for scenario '%s' ...", scenario)
             logger.info("  session_id: %s", session_id)
@@ -250,7 +297,7 @@ def run_demo(
 
             call_sid = initiate_stream_call(
                 to=TWILIO_IVR_NUMBER,
-                stream_url=PIPELINE_STREAM_URL,
+                stream_url=pipeline_stream_url,
             )
             logger.info("Twilio call placed: CallSid=%s", call_sid)
             logger.info("Waiting for Twilio Media Stream to connect to pipeline ...")
@@ -265,6 +312,7 @@ def run_demo(
                 tree_id=tree_id,
                 task_description=task_desc,
                 available_fields=available_fields,
+                scripted_ivr_scenario=scripted,
             )
             logger.info("Pipeline finished.")
 
@@ -283,7 +331,16 @@ def main() -> None:
     parser.add_argument("--text", action="store_true", help="Run in text-only mode")
     parser.add_argument("--api", action="store_true", help="Start the HTTP API server")
     parser.add_argument("--demo", action="store_true", help="Launch full demo (API + dashboard + outbound call)")
-    parser.add_argument("--scenario", default="password_reset", help="Demo scenario (default: password_reset)")
+    parser.add_argument(
+        "--scenario",
+        default="cancel_service",
+        help="Demo scenario: cancel_service (default, natural speech Gather) or password_reset",
+    )
+    parser.add_argument(
+        "--live-ivr",
+        action="store_true",
+        help="Transcribe real callee audio with STT (disables timed scripted IVR; or set DEMO_LIVE_IVR=1)",
+    )
     parser.add_argument("--tree", default="acme_corp", help="Call tree schema (default: acme_corp)")
     parser.add_argument("--host", default="0.0.0.0", help="API server bind address (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="API server port (default: 8000)")
@@ -291,7 +348,13 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.demo:
-        run_demo(host=args.host, port=args.port, scenario=args.scenario, tree_id=args.tree)
+        run_demo(
+            host=args.host,
+            port=args.port,
+            scenario=args.scenario,
+            tree_id=args.tree,
+            live_ivr=args.live_ivr,
+        )
     elif args.api:
         run_api_server(host=args.host, port=args.port, reload=args.reload)
     elif args.text or not args.audio:

@@ -13,3 +13,6 @@ venv/
 call_center_sessions.sqlite3
 .pytest_cache/
 .DS_Store
+
+# Cursor IDE project-local rules and plans
+.cursor/

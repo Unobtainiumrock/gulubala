@@ -4,6 +4,10 @@ These tests are intentionally opt-in because they require real credentials and
 outbound network access. Run them with:
 
 ``RUN_LIVE_EIGEN_TESTS=1 pytest tests/test_api_connectivity.py``
+
+Optional rate-limit probe (bursts unthrottled HTTP POSTs; may see 429):
+
+``RUN_LIVE_EIGEN_TESTS=1 EIGEN_RATE_LIMIT_PROBE=1 pytest tests/test_api_connectivity.py -k rate_limit``
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ if str(ROOT) not in sys.path:
 
 _has_key = bool(os.environ.get("EIGEN_API_KEY"))
 _run_live = os.environ.get("RUN_LIVE_EIGEN_TESTS") == "1"
+_rate_probe = os.environ.get("EIGEN_RATE_LIMIT_PROBE") == "1"
 pytestmark = pytest.mark.skipif(
     not (_has_key and _run_live),
     reason="live Eigen connectivity tests require EIGEN_API_KEY and RUN_LIVE_EIGEN_TESTS=1",
@@ -84,3 +89,47 @@ class TestApiConnectivity:
             "password_reset",
             "unsupported",
         )
+
+
+@pytest.mark.skipif(
+    not (_has_key and _run_live and _rate_probe),
+    reason="set EIGEN_RATE_LIMIT_PROBE=1 with RUN_LIVE_EIGEN_TESTS=1 and EIGEN_API_KEY",
+)
+def test_eigen_chat_burst_reports_status_codes_for_rate_limit_diagnosis():
+    """Fire several chat completions without ``client.eigen.chat_completion``'s 2s throttle.
+
+    HTTP **429** means the server rejected the request as too many (RFC 6585). If you see
+    only **200** here, your account tolerated this burst; that does not prove you have no limits.
+
+    Uses raw httpx so behavior is independent of the OpenAI SDK wrapper.
+    """
+    import httpx
+
+    from client.eigen import _get_api_key, _get_base_url
+    from config.models import EXTRA_BODY, GPT_OSS_MODEL, STOP_SEQUENCES
+
+    url = f"{_get_base_url()}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {_get_api_key()}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": GPT_OSS_MODEL,
+        "messages": [{"role": "user", "content": "Reply with only: ok"}],
+        "max_tokens": 8,
+        "temperature": 0.0,
+        "stop": STOP_SEQUENCES,
+        **EXTRA_BODY,
+    }
+    codes: list[int] = []
+    with httpx.Client(timeout=60.0) as client:
+        for _ in range(12):
+            r = client.post(url, headers=headers, json=payload)
+            codes.append(r.status_code)
+            if r.status_code == 429:
+                break
+
+    assert codes, "expected at least one HTTP response"
+    assert all(c in (200, 429) for c in codes), f"unexpected status codes: {codes}"
+    assert codes[0] == 200, f"first request should succeed; got {codes[0]}: {codes}"
+    # If we never saw 429, the probe still passes — limits may be higher than this burst.
