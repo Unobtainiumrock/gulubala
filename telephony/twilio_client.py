@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from twilio.rest import Client
@@ -15,6 +16,22 @@ from config.models import (
 )
 
 _client: Client | None = None
+
+# Twilio Play digits: 0-9, * #, w = 0.5s pause
+_DTMF_PATTERN = re.compile(r"^[0-9*#w]+$")
+
+
+def _validate_dtmf_digits(digits: str) -> str:
+    """Return stripped digits or raise if any character is not valid DTMF."""
+    cleaned = digits.strip()
+    if not cleaned:
+        raise ValueError("DTMF digits must be non-empty.")
+    if not _DTMF_PATTERN.fullmatch(cleaned):
+        raise ValueError(
+            "DTMF digits may only contain 0-9, *, #, or w (pause); "
+            f"got {digits!r}",
+        )
+    return cleaned
 
 
 def _get_client() -> Client:
@@ -71,8 +88,10 @@ def send_dtmf(call_sid: str, digits: str) -> None:
         call_sid: The ``CallSid`` of the target call.
         digits: DTMF digits to send (0-9, *, #, w for 0.5s pause).
     """
-    twiml = f'<Response><Play digits="{digits}"></Play></Response>'
-    _get_client().calls(call_sid).update(twiml=twiml)
+    safe_digits = _validate_dtmf_digits(digits)
+    response = VoiceResponse()
+    response.play(digits=safe_digits)
+    _get_client().calls(call_sid).update(twiml=str(response))
 
 
 def send_sms(

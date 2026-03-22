@@ -5,7 +5,13 @@ from __future__ import annotations
 import asyncio
 from typing import AsyncGenerator
 
-from pipecat.frames.frames import Frame, TTSAudioRawFrame, TTSStartedFrame, TTSStoppedFrame
+from pipecat.frames.frames import (
+    ErrorFrame,
+    Frame,
+    TTSAudioRawFrame,
+    TTSStartedFrame,
+    TTSStoppedFrame,
+)
 from pipecat.services.tts_service import TTSService
 
 from audio.tts import synthesize_speech
@@ -41,6 +47,6 @@ class EigenTTSService(TTSService):
                 sample_rate=self._sample_rate,
                 num_channels=1,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            yield ErrorFrame(error=f"EigenTTS error: {exc}")
         yield TTSStoppedFrame()
