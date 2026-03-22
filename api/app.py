@@ -262,23 +262,35 @@ def create_app():
             await ws.close(code=1011)
             return
 
+        _inbound_count = 0
+        _outbound_count = 0
+
         async def _fwd_twilio_to_pipecat():
+            nonlocal _inbound_count
             try:
                 while True:
                     data = await ws.receive_text()
+                    _inbound_count += 1
+                    if _inbound_count <= 3:
+                        print(f"[PROXY] Twilio→Pipecat #{_inbound_count}: {data[:120]}", flush=True)
                     await backend_ws.send(data)
             except (WebSocketDisconnect, Exception):
-                pass
+                _logger.info("Twilio→Pipecat closed after %d messages", _inbound_count)
 
         async def _fwd_pipecat_to_twilio():
+            nonlocal _outbound_count
             try:
                 async for msg in backend_ws:
+                    _outbound_count += 1
+                    if _outbound_count <= 5:
+                        preview = msg[:120] if isinstance(msg, str) else f"<{len(msg)} bytes>"
+                        print(f"[PROXY] Pipecat→Twilio #{_outbound_count}: {preview}", flush=True)
                     if isinstance(msg, str):
                         await ws.send_text(msg)
                     else:
                         await ws.send_bytes(msg)
             except (WebSocketDisconnect, Exception):
-                pass
+                _logger.info("Pipecat→Twilio closed after %d messages", _outbound_count)
 
         # If one side exits, cancel the other — plain gather() would leave the
         # survivor blocked on receive forever and never run ``finally`` cleanup.
