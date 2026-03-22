@@ -10,6 +10,19 @@ load_dotenv()
 _client = None
 
 
+def _get_api_key() -> str:
+    """Return the configured Eigen API key or fail with a clear error."""
+    try:
+        return os.environ["EIGEN_API_KEY"]
+    except KeyError as exc:  # pragma: no cover - exercised in misconfigured envs
+        raise KeyError("EIGEN_API_KEY is not set") from exc
+
+
+def _get_base_url() -> str:
+    """Return the configured Eigen-compatible API base URL."""
+    return EIGEN_BASE_URL.rstrip("/")
+
+
 def get_client():
     """Return a shared OpenAI client configured for Eigen AI."""
     global _client
@@ -17,8 +30,8 @@ def get_client():
         from openai import OpenAI
 
         _client = OpenAI(
-            api_key=os.environ["EIGEN_API_KEY"],
-            base_url=EIGEN_BASE_URL,
+            api_key=_get_api_key(),
+            base_url=_get_base_url(),
         )
     return _client
 
@@ -43,7 +56,7 @@ def generate_file(model: str, file_bytes: bytes, filename: str, content_type: st
     """Send a multipart file request to the Eigen generate endpoint."""
     import httpx
 
-    api_key = os.environ["EIGEN_API_KEY"]
+    api_key = _get_api_key()
     with httpx.Client(timeout=60.0) as client:
         response = client.post(
             EIGEN_GENERATE_URL,
@@ -65,7 +78,7 @@ def generate_form(model: str, expect_json: bool = True, **form_fields):
     """Send a non-file form request to the Eigen generate endpoint."""
     import httpx
 
-    api_key = os.environ["EIGEN_API_KEY"]
+    api_key = _get_api_key()
     multipart_fields = [("model", (None, str(model)))]
     for key, value in form_fields.items():
         multipart_fields.append((key, (None, str(value))))
