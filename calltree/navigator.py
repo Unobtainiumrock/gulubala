@@ -34,7 +34,6 @@ from contracts.events import (
     BridgeActiveEvent,
     CompletedEvent,
     EscalationEvent,
-    NodeEnteredEvent,
     TranscriptEvent,
 )
 from contracts.prompts import (
@@ -238,13 +237,7 @@ class IvrNavigatorProcessor(FrameProcessor):
         if node:
             for transition in node.transitions:
                 if transition.input == digits:
-                    next_node = self._state.move_to(transition.next_node_id)
-                    if next_node:
-                        self._emit_event(NodeEnteredEvent(
-                            session_id=self._state.session_id,
-                            node_fields=[next_node.id],
-                            intent=next_node.intent,
-                        ))
+                    self._state.move_to(transition.next_node_id)
                     break
 
         for digit in digits:

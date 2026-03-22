@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -67,7 +68,7 @@ async def _lifespan(app: FastAPI):
     """On startup: auto-detect ngrok and sync Twilio webhook (best-effort)."""
     try:
         from telephony.ngrok import auto_sync
-        result = auto_sync()
+        result = await asyncio.to_thread(auto_sync)
         if result:
             _logger.info("Twilio webhook auto-synced: %s", result["voice_url"])
         else:
