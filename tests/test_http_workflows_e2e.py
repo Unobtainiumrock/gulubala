@@ -70,7 +70,7 @@ class TestHttpHappyPaths:
         plan2 = _plan(client, sid)
         assert "verification_code" in plan2["next_fields"]
         joined = " ".join(plan2["next_questions"]).lower()
-        assert "verification" in joined and "6" in joined
+        assert "verification" in joined and ("six" in joined or "6" in joined)
 
         assert _submit(client, sid, "verification_code", "654321")["accepted"] is True
 

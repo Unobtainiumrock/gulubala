@@ -217,7 +217,13 @@ class CallCenterService:
         log_event("document_processed", session, result=result)
         return result
 
-    def handle_user_turn(self, session_id: str, utterance: str) -> dict[str, Any]:
+    def handle_user_turn(
+        self,
+        session_id: str,
+        utterance: str,
+        *,
+        single_voice_prompt: bool = False,
+    ) -> dict[str, Any]:
         session = self.get_session(session_id)
         self.engine.register_user_turn(session, utterance)
         self.store.save_session(session)
@@ -277,7 +283,10 @@ class CallCenterService:
                     )
                     for s in failed
                 ]
-                message = " ".join(retry_parts)
+                if single_voice_prompt and retry_parts:
+                    message = retry_parts[0]
+                else:
+                    message = " ".join(retry_parts)
             else:
                 plan = self.engine.plan_next_step(session, workflow)
                 self.store.save_session(session)
@@ -289,8 +298,14 @@ class CallCenterService:
                     else:
                         summary = self.build_escalation_summary(session.session_id)
                         message = f"I need to connect you with a human specialist. {summary['summary']}"
+                elif plan["next_questions"]:
+                    message = (
+                        plan["next_questions"][0]
+                        if single_voice_prompt
+                        else " ".join(plan["next_questions"])
+                    )
                 else:
-                    message = " ".join(plan["next_questions"]) if plan["next_questions"] else "Please continue."
+                    message = "Please continue."
 
         self.engine.register_assistant_turn(session, message)
         self.store.save_session(session)

@@ -33,6 +33,7 @@ from contracts.api import (
     VoiceEventRequest,
     VoiceEventResponse,
 )
+from ivr.routes import router as ivr_router
 from services.orchestrator import CallCenterService
 from services.session_store import SQLiteSessionStore
 
@@ -51,6 +52,8 @@ def create_app():
         raise ModuleNotFoundError("FastAPI is not installed. Install requirements to run the HTTP API.")
 
     app = FastAPI(title="LLM Call Center Agent", version="0.1.0")
+    app.state.get_service = get_service
+    app.include_router(ivr_router)
 
     @app.get("/health", response_model=HealthResponse)
     def health():
