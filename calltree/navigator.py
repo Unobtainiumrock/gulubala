@@ -137,6 +137,11 @@ class IvrNavigatorProcessor(FrameProcessor):
         if not transcript_text:
             return
 
+        if self._state.resolved or self._state.escalated:
+            logger.debug("Ignoring IVR frame — session already %s",
+                         "resolved" if self._state.resolved else "escalated")
+            return
+
         self._state.transcript.append({"role": "ivr", "content": transcript_text})
         record_transcript_turn(self._state.session_id, "ivr", transcript_text)
         self._emit_event(TranscriptEvent(
