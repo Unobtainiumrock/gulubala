@@ -1,0 +1,118 @@
+{
+  "id": "acme_corp",
+  "brand": "Acme Corp",
+  "root_node_id": "root",
+  "nodes": [
+    {
+      "id": "root",
+      "label": "Main Menu",
+      "prompt": "Thank you for calling Acme Corp. Press 1 for billing, 2 for account services, or 3 for order support.",
+      "input_type": "dtmf",
+      "invalid_input_prompt": "Sorry, that was not a valid selection.",
+      "transitions": [
+        {
+          "input": "1",
+          "next_node_id": "billing_menu",
+          "label": "Billing"
+        },
+        {
+          "input": "2",
+          "next_node_id": "account_menu",
+          "label": "Account Services"
+        },
+        {
+          "input": "3",
+          "next_node_id": "order_menu",
+          "label": "Order Support"
+        }
+      ]
+    },
+    {
+      "id": "billing_menu",
+      "label": "Billing Menu",
+      "prompt": "For a billing dispute, press 1. To cancel your service, press 2.",
+      "input_type": "dtmf",
+      "invalid_input_prompt": "Sorry, that billing selection was not recognized.",
+      "transitions": [
+        {
+          "input": "1",
+          "next_node_id": "billing_dispute_agent",
+          "label": "Billing Dispute"
+        },
+        {
+          "input": "2",
+          "next_node_id": "cancel_service_agent",
+          "label": "Cancel Service"
+        }
+      ]
+    },
+    {
+      "id": "account_menu",
+      "label": "Account Services Menu",
+      "prompt": "For password reset help, press 1. To update your profile, press 2.",
+      "input_type": "dtmf",
+      "invalid_input_prompt": "Sorry, that account services selection was not recognized.",
+      "transitions": [
+        {
+          "input": "1",
+          "next_node_id": "password_reset_agent",
+          "label": "Password Reset"
+        },
+        {
+          "input": "2",
+          "next_node_id": "update_profile_agent",
+          "label": "Update Profile"
+        }
+      ]
+    },
+    {
+      "id": "order_menu",
+      "label": "Order Support Menu",
+      "prompt": "For order status, press 1.",
+      "input_type": "dtmf",
+      "invalid_input_prompt": "Sorry, that order support selection was not recognized.",
+      "transitions": [
+        {
+          "input": "1",
+          "next_node_id": "order_status_agent",
+          "label": "Order Status"
+        }
+      ]
+    },
+    {
+      "id": "password_reset_agent",
+      "label": "Password Reset Specialist",
+      "prompt": "Please hold while I connect you to our password reset specialist.",
+      "input_type": "speech",
+      "intent": "password_reset"
+    },
+    {
+      "id": "billing_dispute_agent",
+      "label": "Billing Dispute Specialist",
+      "prompt": "Please hold while I connect you to our billing dispute specialist.",
+      "input_type": "speech",
+      "intent": "billing_dispute"
+    },
+    {
+      "id": "order_status_agent",
+      "label": "Order Status Specialist",
+      "prompt": "Please hold while I connect you to our order status specialist.",
+      "input_type": "speech",
+      "intent": "order_status"
+    },
+    {
+      "id": "update_profile_agent",
+      "label": "Profile Update Specialist",
+      "prompt": "Please hold while I connect you to our profile update specialist.",
+      "input_type": "speech",
+      "intent": "update_profile"
+    },
+    {
+      "id": "cancel_service_agent",
+      "label": "Cancellation Specialist",
+      "prompt": "Please hold while I connect you to our cancellation specialist.",
+      "input_type": "speech",
+      "intent": "cancel_service"
+    }
+  ]
+}
