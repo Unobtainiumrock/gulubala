@@ -315,12 +315,17 @@ class IvrNavigatorProcessor(FrameProcessor):
         loop = asyncio.get_running_loop()
         future = create_gather_future(self._state.session_id, field_name, loop)
 
+        # Resolve the workflow intent for a contextual presenter prompt.
+        node = self._state.current_node
+        intent = node.intent if node and node.intent else None
+
         await asyncio.to_thread(
             call_presenter_for_info,
             session_id=self._state.session_id,
             field_name=field_name,
             field_prompt=field_prompt,
             callback_base_url=callback_base,
+            intent=intent,
         )
 
         try:

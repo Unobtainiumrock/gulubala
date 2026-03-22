@@ -85,12 +85,32 @@ def call_presenter(message: str, **_: Any) -> str:
     return call.sid
 
 
+_INTENT_LABELS: dict[str, str] = {
+    "cancel_service": "cancel a subscription",
+    "password_reset": "reset a password",
+    "billing_dispute": "handle a billing dispute",
+    "update_profile": "update an account profile",
+    "order_status": "check an order status",
+}
+
+
+def _build_presenter_intro(field_name: str, intent: str | None = None) -> str:
+    """Build a brief, conversational intro for the presenter side-call."""
+    friendly_name = field_name.replace("_", " ")
+    purpose = _INTENT_LABELS.get(intent or "", "complete a task")
+    return (
+        f"Hey, the agent is mid-call trying to {purpose} "
+        f"and needs a {friendly_name} from you."
+    )
+
+
 def call_presenter_for_info(
     *,
     session_id: str,
     field_name: str,
     field_prompt: str,
     callback_base_url: str,
+    intent: str | None = None,
 ) -> str:
     """Call the presenter and use ``<Gather input="speech">`` to collect a field value.
 
@@ -102,6 +122,7 @@ def call_presenter_for_info(
     from xml.sax.saxutils import escape
 
     client = Client(config_models.TWILIO_ACCOUNT_SID, config_models.TWILIO_AUTH_TOKEN)
+    intro = escape(_build_presenter_intro(field_name, intent=intent))
     safe_prompt = escape(field_prompt)
     action_url = (
         f"{callback_base_url.rstrip('/')}"
@@ -111,7 +132,7 @@ def call_presenter_for_info(
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         "<Response>"
-        f'<Say voice="Polly.Joanna">The automated agent needs your help.</Say>'
+        f'<Say voice="Polly.Joanna">{intro}</Say>'
         f'<Gather input="speech" timeout="15" speechTimeout="auto" '
         f'action="{escape(action_url)}" method="POST">'
         f'<Say voice="Polly.Joanna">{safe_prompt}</Say>'
