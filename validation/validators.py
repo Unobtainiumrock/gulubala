@@ -67,10 +67,10 @@ def extract_contiguous_digits(value: str) -> str:
         if token.isdigit() or token in _DIGIT_WORDS:
             current.append(_DIGIT_WORDS.get(token, token))
         else:
-            if len(current) > len(best):
+            if len("".join(current)) > len("".join(best)):
                 best = list(current)
             current = []
-    if len(current) > len(best):
+    if len("".join(current)) > len("".join(best)):
         best = current
     return "".join(best)
 
