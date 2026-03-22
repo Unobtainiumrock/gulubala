@@ -259,6 +259,8 @@ class CallCenterService:
         workflow = self._require_workflow(session)
         submissions = self.engine.attempt_multi_field_capture(session, workflow, utterance)
         self.store.save_session(session)
+        for s in submissions:
+            log_event("field_submitted", session, submission=s)
 
         if session.escalate:
             summary = self.build_escalation_summary(session.session_id)
@@ -355,6 +357,7 @@ class CallCenterService:
                 )
             self.engine.register_assistant_turn(session, message)
             self.store.save_session(session)
+            log_event("conversation_turn", session, message=message)
             return self._conversation_response(session, message)
 
         if normalized.event_type == "interrupt":
