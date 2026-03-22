@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 try:
     from fastapi import FastAPI, HTTPException
+    from starlette.staticfiles import StaticFiles
 except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is absent
     FastAPI = None
     HTTPException = RuntimeError
+    StaticFiles = None
 
 
+from calltree.registry import get_call_tree
 from config.models import SESSION_DB_PATH
 from dashboard.ws import get_manager, router as ws_router
 from ivr.routes import router as ivr_router
@@ -185,6 +190,18 @@ def create_app():
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/calltree/{tree_id}")
+    def calltree(tree_id: str):
+        tree = get_call_tree(tree_id)
+        if tree is None:
+            raise HTTPException(status_code=404, detail=f"Call tree '{tree_id}' not found")
+        return tree
+
+    # Static dashboard — mount after all routes so API paths take priority
+    _static_dir = Path(__file__).resolve().parent.parent / "dashboard" / "static"
+    if _static_dir.is_dir() and StaticFiles is not None:
+        app.mount("/dashboard", StaticFiles(directory=str(_static_dir), html=True))
 
     return app
 
