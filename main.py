@@ -1,6 +1,7 @@
 """Entry point: wire the full call center pipeline together."""
 
 import argparse
+import logging
 
 from asr.transcribe import transcribe_file
 from services.orchestrator import CallCenterService
@@ -11,8 +12,41 @@ def _build_cli_service() -> CallCenterService:
     return CallCenterService(InMemorySessionStore())
 
 
+def _quiet_logs() -> None:
+    """Suppress structured JSON log lines during interactive CLI sessions."""
+    logging.getLogger("call_center").setLevel(logging.WARNING)
+
+
+def _print_summary(session) -> None:
+    fields = dict(session.validated_fields)
+    border = "-" * 40
+
+    print(f"\n{border}")
+    print("  Session Summary")
+    print(border)
+    print(f"  Intent:     {session.intent or 'unclassified'}")
+    print(f"  Turns:      {session.turn_count}")
+    print(f"  Resolved:   {session.resolved}")
+    print(f"  Escalated:  {session.escalate}")
+
+    if session.escalation_reason:
+        print(f"  Reason:     {session.escalation_reason}")
+
+    if fields:
+        print(f"\n  Validated fields:")
+        for name, value in fields.items():
+            print(f"    {name:20s}  {value}")
+
+    if session.action_result:
+        print(f"\n  Action result:")
+        print(f"    {session.action_result}")
+
+    print(border)
+
+
 def run_audio_session(audio_path: str):
-    """Full pipeline: audio file → transcription → intent → dialogue loop."""
+    """Full pipeline: audio file -> transcription -> intent -> dialogue loop."""
+    _quiet_logs()
     print(f"[ASR] Transcribing {audio_path}...")
     transcript = transcribe_file(audio_path)
     print(f"[ASR] Transcript: {transcript}\n")
@@ -21,6 +55,7 @@ def run_audio_session(audio_path: str):
 
 def run_text_session():
     """Text-only mode for testing without audio."""
+    _quiet_logs()
     print("Call Center Agent (text mode)")
     print("Type your issue to begin. Type 'quit' to exit.\n")
 
@@ -52,18 +87,7 @@ def _run_dialogue(initial_utterance: str, channel: str):
         result = service.handle_user_turn(session.session_id, user_input)
         print(f"Agent: {result['message']}\n")
 
-    # Summary
-    final_state = service.get_session(session.session_id)
-    print("\n--- Session Summary ---")
-    print(f"Intent: {final_state.intent}")
-    print(f"Turns: {final_state.turn_count}")
-    print(f"Fields validated: {final_state.validated_fields}")
-    print(f"Resolved: {final_state.resolved}")
-    print(f"Escalated: {final_state.escalate}")
-    if final_state.escalation_reason:
-        print(f"Escalation reason: {final_state.escalation_reason}")
-    if final_state.action_result:
-        print(f"Action result: {final_state.action_result}")
+    _print_summary(service.get_session(session.session_id))
 
 
 def run_api_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = False):
