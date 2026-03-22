@@ -234,43 +234,42 @@ def run_demo(
             "PIPELINE_STREAM_URL not set. Start a second ngrok tunnel for port 8765 "
             "and set PIPELINE_STREAM_URL=wss://<tunnel>.ngrok-free.app in .env"
         )
-    else:
-        # 6. Initiate the outbound call
-        session_id = uuid.uuid4().hex
-        available_fields = _DEMO_FIELD_DEFAULTS.get(scenario, {})
-        task_desc = f"Demo scenario '{scenario}' with fields: {available_fields}"
-
-        logger.info("Initiating outbound call for scenario '%s' ...", scenario)
-        logger.info("  session_id: %s", session_id)
-        logger.info("  tree: %s", tree_id)
-        logger.info("  fields: %s", available_fields)
-
-        from telephony.twilio_client import initiate_stream_call
-
-        call_sid = initiate_stream_call(
-            to=TWILIO_IVR_NUMBER,
-            stream_url=PIPELINE_STREAM_URL,
-        )
-        logger.info("Twilio call placed: CallSid=%s", call_sid)
-        logger.info("Waiting for Twilio Media Stream to connect to pipeline ...")
-
-        # 7. Run the Pipecat pipeline (blocks until call ends)
-        from calltree.pipeline import run_agent_pipeline_sync
-
-        run_agent_pipeline_sync(
-            stream_sid="pending",
-            call_sid=call_sid,
-            session_id=session_id,
-            tree_id=tree_id,
-            task_description=task_desc,
-            available_fields=available_fields,
-        )
-        logger.info("Pipeline finished.")
-
-    # 8. Block until Ctrl+C (server stays up for dashboard inspection)
-    if not (twilio_ready and stream_ready):
-        logger.info("Server running. Press Ctrl+C to stop.")
     try:
+        if twilio_ready and stream_ready:
+            # 6. Initiate the outbound call
+            session_id = uuid.uuid4().hex
+            available_fields = _DEMO_FIELD_DEFAULTS.get(scenario, {})
+            task_desc = f"Demo scenario '{scenario}' with fields: {available_fields}"
+
+            logger.info("Initiating outbound call for scenario '%s' ...", scenario)
+            logger.info("  session_id: %s", session_id)
+            logger.info("  tree: %s", tree_id)
+            logger.info("  fields: %s", available_fields)
+
+            from telephony.twilio_client import initiate_stream_call
+
+            call_sid = initiate_stream_call(
+                to=TWILIO_IVR_NUMBER,
+                stream_url=PIPELINE_STREAM_URL,
+            )
+            logger.info("Twilio call placed: CallSid=%s", call_sid)
+            logger.info("Waiting for Twilio Media Stream to connect to pipeline ...")
+
+            # 7. Run the Pipecat pipeline (blocks until call ends)
+            from calltree.pipeline import run_agent_pipeline_sync
+
+            run_agent_pipeline_sync(
+                stream_sid="pending",
+                call_sid=call_sid,
+                session_id=session_id,
+                tree_id=tree_id,
+                task_description=task_desc,
+                available_fields=available_fields,
+            )
+            logger.info("Pipeline finished.")
+
+        # 8. Block until Ctrl+C (server stays up for dashboard inspection)
+        logger.info("Server running. Press Ctrl+C to stop.")
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
