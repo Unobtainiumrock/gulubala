@@ -5,6 +5,7 @@ import os
 # Eigen API endpoints
 EIGEN_BASE_URL = os.environ.get("EIGEN_BASE_URL", "https://api-web.eigenai.com/api/v1")
 EIGEN_GENERATE_URL = os.environ.get("EIGEN_GENERATE_URL", f"{EIGEN_BASE_URL.rstrip('/')}/generate")
+EIGEN_UPLOAD_URL = os.environ.get("EIGEN_UPLOAD_URL", f"{EIGEN_BASE_URL.rstrip('/')}/generate/upload")
 
 # Eigen AI model identifiers
 HIGGS_ASR_MODEL = os.environ.get("HIGGS_ASR_MODEL", "higgs_asr_3")
@@ -48,6 +49,7 @@ REDACT_FIELD_HINTS = (
 # Demo branding
 DEMO_BRAND_NAME = os.environ.get("DEMO_BRAND_NAME", "Callit-Dev")
 DEMO_TTS_VOICE = os.environ.get("DEMO_TTS_VOICE", "Linda")
+DEMO_VOICE_ID = os.environ.get("DEMO_VOICE_ID", "")
 
 # Twilio integration
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
