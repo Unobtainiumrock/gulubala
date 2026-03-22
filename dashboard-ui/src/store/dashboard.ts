@@ -3,25 +3,24 @@ import type { CallTreeData, Session, TranscriptMessage } from "@/types/events";
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
 
-function getApiBase(): string {
-  if (typeof window === "undefined") return "";
-  return process.env.NEXT_PUBLIC_API_BASE ?? "";
+/** Matches `API_PROXY_TARGET` default in `next.config.ts` (Next rewrites cannot upgrade WebSockets). */
+const DEFAULT_DEV_API_ORIGIN = "http://localhost:8000";
+
+function resolveClientApiOrigin(): string {
+  const raw = process.env.NEXT_PUBLIC_API_BASE?.trim();
+  if (raw) return raw.replace(/\/$/, "");
+  return DEFAULT_DEV_API_ORIGIN;
 }
 
 function getWsUrl(path: string): string {
   if (typeof window === "undefined") return "";
-  const base = process.env.NEXT_PUBLIC_API_BASE;
-  if (base) {
-    try {
-      const url = new URL(base);
-      const proto = url.protocol === "https:" ? "wss:" : "ws:";
-      return `${proto}//${url.host}${path}`;
-    } catch {
-      /* fall through */
-    }
+  try {
+    const url = new URL(resolveClientApiOrigin());
+    const proto = url.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${url.host}${path}`;
+  } catch {
+    return "";
   }
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}${path}`;
 }
 
 let reconnectDelay = 1000;
@@ -216,9 +215,10 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   setActiveSession: (id) => set({ activeSessionId: id }),
 
   loadCallTree: async (treeId = "acme_corp") => {
+    const directBase = resolveClientApiOrigin();
     const targets = [
       `/calltree/${treeId}`,
-      `${getApiBase()}/calltree/${treeId}`,
+      `${directBase}/calltree/${treeId}`,
     ];
     for (const url of targets) {
       try {
