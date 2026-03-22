@@ -109,6 +109,8 @@ class IvrNavigatorProcessor(FrameProcessor):
         available_fields: Pre-collected field values the agent can
             provide when the IVR asks for information.
         model: LLM model identifier for classification / action prompts.
+        demo_force_human_flows: Scripted cancel_service demo: force presenter gather
+            and retention escalate when transcript matches known lines.
     """
 
     def __init__(
@@ -121,6 +123,7 @@ class IvrNavigatorProcessor(FrameProcessor):
         twilio_call_sid: str | None = None,
         model: str = GPT_OSS_MODEL,
         ready_event: asyncio.Event | None = None,
+        demo_force_human_flows: bool = False,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
