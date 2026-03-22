@@ -60,4 +60,4 @@ def log_event(event_type: str, session: SessionState, **data: Any) -> None:
         "state": serialize_state_for_logs(session),
         "data": data,
     }
-    _LOGGER.info(json.dumps(payload, sort_keys=True))
+    _LOGGER.info(json.dumps(payload, sort_keys=True, default=str))

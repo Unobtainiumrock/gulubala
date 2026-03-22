@@ -33,6 +33,7 @@ MULTI_FIELD_BATCH_SIZE = 3
 
 # Session and privacy settings
 SESSION_DB_PATH = os.environ.get("SESSION_DB_PATH", "call_center_sessions.sqlite3")
+SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", str(24 * 60 * 60)))  # default 24h
 TRANSCRIPT_RETENTION_ENABLED = os.environ.get("TRANSCRIPT_RETENTION_ENABLED", "false").lower() == "true"
 TRANSCRIPT_CONTEXT_TURNS = int(os.environ.get("TRANSCRIPT_CONTEXT_TURNS", "6"))
 REDACT_FIELD_HINTS = (

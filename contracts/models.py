@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -151,6 +152,7 @@ class SessionState(BaseModel):
     """Serializable workflow state for a single caller session."""
 
     session_id: str = Field(default_factory=lambda: uuid4().hex)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     channel: str = "text"
     intent: str | None = None
     confidence: float = 0.0
