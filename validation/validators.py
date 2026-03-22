@@ -52,6 +52,29 @@ def normalize_digit_tokens(value: str) -> str:
     return "".join(digits)
 
 
+def extract_contiguous_digits(value: str) -> str:
+    """Extract the longest contiguous run of digit/digit-word tokens.
+
+    Unlike ``normalize_digit_tokens`` (which converts *all* digit words in
+    the utterance), this only returns the longest unbroken sequence of
+    numeric tokens so that surrounding conversational words like "one
+    moment, my account is ..." don't pollute the extracted value.
+    """
+    tokens = re.findall(r"[A-Za-z]+|\d+", str(value).lower())
+    best: list[str] = []
+    current: list[str] = []
+    for token in tokens:
+        if token.isdigit() or token in _DIGIT_WORDS:
+            current.append(_DIGIT_WORDS.get(token, token))
+        else:
+            if len("".join(current)) > len("".join(best)):
+                best = list(current)
+            current = []
+    if len("".join(current)) > len("".join(best)):
+        best = current
+    return "".join(best)
+
+
 def validate_account_number(value: str) -> tuple[bool, str]:
     cleaned = normalize_digit_tokens(value)
     if re.fullmatch(r"\d{8,12}", cleaned):

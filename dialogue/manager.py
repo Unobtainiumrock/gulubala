@@ -17,7 +17,7 @@ from contracts.prompts import (
     build_multi_field_extraction_prompt,
     parse_contract,
 )
-from validation.validators import get_validator, normalize_digit_tokens, parse_numeric
+from validation.validators import extract_contiguous_digits, get_validator, normalize_digit_tokens, parse_numeric
 
 FieldExtractor = Callable[[FieldDefinition, str], str | None]
 MultiFieldExtractor = Callable[[list[FieldDefinition], str], dict[str, str]]
@@ -349,11 +349,11 @@ class WorkflowEngine:
             return None
 
         if field.validator in {"account_number", "verification_code", "phone", "zip_code"}:
-            digits = normalize_digit_tokens(text)
+            digits = extract_contiguous_digits(text)
             return digits or None
 
         if field.validator == "order_number":
-            match = re.search(r"[A-Za-z0-9\-]{6,20}", text)
+            match = re.search(r"\b(?=[A-Za-z0-9\-]*\d)[A-Za-z0-9\-]{6,20}\b", text)
             return match.group(0).upper() if match else None
 
         if field.validator == "email":
@@ -361,12 +361,13 @@ class WorkflowEngine:
             return match.group(0) if match else None
 
         if field.validator == "yes_no":
-            for token in ("yes", "yeah", "yep", "affirmative", "correct", "right"):
-                if token in lowered:
-                    return "yes"
-            for token in ("no", "nope", "nah", "negative"):
-                if token in lowered:
-                    return "no"
+            words = set(re.findall(r"\b[a-z]+\b", lowered))
+            no_words = words & {"no", "nope", "nah", "negative"}
+            yes_words = words & {"yes", "yeah", "yep", "affirmative", "correct"}
+            if no_words and not yes_words:
+                return "no"
+            if yes_words and not no_words:
+                return "yes"
             return None
 
         if field.validator == "profile_field":

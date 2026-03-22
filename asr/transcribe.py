@@ -74,11 +74,23 @@ def transcribe_file(path: str, language: str = ASR_LANGUAGE) -> str:
 
 
 def transcribe(chunks: list[str], language: str = ASR_LANGUAGE) -> str:
-    """Compatibility wrapper for base64-encoded audio chunks."""
-    raw = bytearray()
-    try:
-        for chunk in chunks:
-            raw.extend(base64.b64decode(chunk))
-    except Exception as exc:
-        raise ValueError("Invalid base64 audio payload.") from exc
-    return transcribe_bytes(bytes(raw), filename="audio.wav", content_type="audio/wav", language=language)
+    """Compatibility wrapper for base64-encoded audio chunks.
+
+    Each chunk is a complete WAV with its own RIFF header, so they must
+    be transcribed individually and the text joined afterwards.
+    """
+    parts: list[str] = []
+    for i, chunk in enumerate(chunks):
+        try:
+            file_bytes = base64.b64decode(chunk)
+        except Exception as exc:
+            raise ValueError("Invalid base64 audio payload.") from exc
+        text = transcribe_bytes(
+            file_bytes,
+            filename=f"chunk_{i}.wav",
+            content_type="audio/wav",
+            language=language,
+        )
+        if text and text.strip():
+            parts.append(text.strip())
+    return " ".join(parts)
