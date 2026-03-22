@@ -25,6 +25,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
+from calltree.demo_human_flows import apply_demo_human_flow_overrides
 from calltree.models import CallTreeNode, CallTreeSchema
 from calltree.registry import get_call_tree
 from client.eigen import chat_completion
@@ -60,6 +61,22 @@ logger = logging.getLogger("call_center.navigator")
 _DIGIT_TO_KEYPAD: dict[str, KeypadEntry] = {entry.value: entry for entry in KeypadEntry}
 
 IVR_CLASSIFICATION_SYSTEM = build_ivr_classification_prompt()
+
+
+def _run_presenter_pipeline_in_thread(session_id: str, fields: dict[str, str]) -> None:
+    """Target for threading.Thread — runs the presenter pipeline in its own event loop."""
+    from calltree.pipeline import run_presenter_pipeline_sync
+    try:
+        run_presenter_pipeline_sync(
+            stream_sid="pending",
+            call_sid="pending",
+            session_id=session_id,
+            validated_fields=fields,
+        )
+    except Exception:
+        logging.getLogger("call_center.navigator").exception(
+            "Presenter retention pipeline crashed session=%s", session_id,
+        )
 
 
 class NavigatorState:
@@ -180,16 +197,27 @@ class IvrNavigatorProcessor(FrameProcessor):
 
             logger.info("IVR said: %s", transcript_text)
 
+            # In scripted demo mode, use deterministic overrides and skip
+            # the LLM entirely — avoids 429 rate-limit delays and flaky
+            # JSON parsing.
+            if self._demo_force_human_flows:
+                _sentinel = IvrActionResponse(action="wait", reasoning="_sentinel")
+                demo_action = apply_demo_human_flow_overrides(
+                    enabled=True,
+                    transcript_text=transcript_text,
+                    classification_category="",
+                    available_fields=self._state.available_fields,
+                    escalated=self._state.escalated,
+                    action=_sentinel,
+                )
+                if demo_action is not _sentinel:
+                    logger.info("Demo override: %s (reason: %s)", demo_action.action, demo_action.reasoning)
+                    await self._execute(demo_action)
+                    self._emit_calltree_position()
+                    return
+
             classification = await self._classify(transcript_text)
             action = await self._decide(classification)
-            action = apply_demo_human_flow_overrides(
-                enabled=self._demo_force_human_flows,
-                transcript_text=transcript_text,
-                classification_category=classification.category,
-                available_fields=self._state.available_fields,
-                escalated=self._state.escalated,
-                action=action,
-            )
 
             await self._execute(action)
             self._emit_calltree_position()
@@ -247,7 +275,7 @@ class IvrNavigatorProcessor(FrameProcessor):
                     {"role": "user", "content": "What should I do next?"},
                 ],
                 temperature=0,
-                max_tokens=512,
+                max_tokens=1024,
             )
             return parse_contract(raw, IvrActionResponse)
         except Exception:
@@ -393,6 +421,12 @@ class IvrNavigatorProcessor(FrameProcessor):
         ))
         logger.warning("Navigator escalating: %s", reason)
 
+        # In demo mode, connect presenter to a conversational AI agent
+        # instead of a static conference bridge.
+        if self._demo_force_human_flows:
+            await self._escalate_to_retention_agent(reason)
+            return
+
         bridge = await asyncio.to_thread(
             notify_escalation,
             session_id=self._state.session_id,
@@ -401,19 +435,62 @@ class IvrNavigatorProcessor(FrameProcessor):
             twilio_call_sid=self._twilio_call_sid,
         )
         if bridge is not None:
-            # Conference bridge is active — the IVR call has been moved out
-            # of the Pipecat media stream, so TTS would go nowhere.
             self._emit_event(BridgeActiveEvent(
                 session_id=self._state.session_id,
                 conference_name=bridge.conference_name,
                 presenter_call_sid=bridge.presenter_call_sid,
             ))
         else:
-            # No bridge (no active call SID) — pipeline is still live,
-            # so speak into the IVR to buy time while the presenter is notified.
             await self.push_frame(
                 TextFrame(text=f"I need help from a human. {reason}")
             )
+
+    async def _escalate_to_retention_agent(self, reason: str) -> None:
+        """Demo escalation: call presenter into a conversational AI agent."""
+        from config.models import PUBLIC_API_BASE_URL
+        from calltree.pipeline import run_presenter_pipeline
+        from telephony.presenter_notify import call_presenter_to_agent
+
+        base = (PUBLIC_API_BASE_URL or "").rstrip("/")
+        if not base:
+            logger.error("PUBLIC_API_BASE_URL not set; cannot start retention agent")
+            return
+
+        # Use a sub-path of /ws/twilio-stream so both WebSockets go
+        # through the single ngrok tunnel (free tier blocks separate paths).
+        stream_url = base.replace("https://", "wss://").replace("http://", "ws://")
+        stream_url += "/ws/twilio-stream/presenter"
+
+        fields = dict(self._state.available_fields)
+        session_id = self._state.session_id
+
+        # Start the retention agent pipeline in a background thread
+        # (it runs its own asyncio event loop)
+        import threading
+        pipeline_thread = threading.Thread(
+            target=_run_presenter_pipeline_in_thread,
+            args=(session_id, fields),
+            daemon=True,
+        )
+        pipeline_thread.start()
+
+        # Give the pipeline a moment to start its WebSocket server
+        await asyncio.sleep(1.0)
+
+        # Call the presenter and connect them to the retention agent stream
+        call_sid = await asyncio.to_thread(
+            call_presenter_to_agent,
+            session_id=session_id,
+            stream_url=stream_url,
+            validated_fields=fields,
+        )
+        logger.info("Presenter connected to retention agent call_sid=%s", call_sid)
+
+        self._emit_event(BridgeActiveEvent(
+            session_id=session_id,
+            conference_name=f"retention_agent_{session_id[:12]}",
+            presenter_call_sid=call_sid,
+        ))
 
     def mark_completed(
         self,

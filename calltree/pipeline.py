@@ -45,10 +45,13 @@ from config.models import (
 from pipecat_services.eigen_stt import EigenSTTService
 from pipecat_services.eigen_tts import EigenTTSService
 
+from calltree.retention_agent import RetentionAgentProcessor
+
 logger = logging.getLogger("call_center.pipeline")
 
 PIPELINE_WS_HOST = os.environ.get("PIPELINE_WS_HOST", "0.0.0.0")
 PIPELINE_WS_PORT = int(os.environ.get("PIPELINE_WS_PORT", "8765"))
+PRESENTER_WS_PORT = int(os.environ.get("PRESENTER_PIPELINE_WS_PORT", "8766"))
 
 
 def build_transport(
@@ -190,4 +193,99 @@ def run_agent_pipeline_sync(
         available_fields=available_fields,
         scripted_ivr_scenario=scripted_ivr_scenario,
         demo_force_human_flows=demo_force_human_flows,
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Presenter retention agent pipeline
+# ---------------------------------------------------------------------------
+
+def build_presenter_transport(
+    stream_sid: str,
+    call_sid: str,
+) -> WebsocketServerTransport:
+    """WebSocket transport for the presenter-side retention agent."""
+    serializer = TwilioFrameSerializer(
+        stream_sid=stream_sid,
+        call_sid=call_sid,
+        account_sid=TWILIO_ACCOUNT_SID,
+        auth_token=TWILIO_AUTH_TOKEN,
+    )
+    return WebsocketServerTransport(
+        host=PIPELINE_WS_HOST,
+        port=PRESENTER_WS_PORT,
+        params=WebsocketServerParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            add_wav_header=False,
+            vad_enabled=True,
+            vad_analyzer=SileroVADAnalyzer(),
+            serializer=serializer,
+        ),
+    )
+
+
+async def run_presenter_pipeline(
+    *,
+    stream_sid: str,
+    call_sid: str,
+    session_id: str,
+    validated_fields: dict[str, str] | None = None,
+) -> None:
+    """Run a conversational retention agent pipeline for the presenter call."""
+    from config.models import RETENTION_AGENT_VOICE
+
+    fields = validated_fields or {}
+    transport = build_presenter_transport(stream_sid, call_sid)
+    stt = EigenSTTService()
+    tts = EigenTTSService(voice=RETENTION_AGENT_VOICE)
+    agent = RetentionAgentProcessor(
+        account_number=fields.get("account_number", "unknown"),
+        cancellation_reason=fields.get("cancellation_reason", "not provided"),
+        validated_fields=fields,
+    )
+
+    pipeline = Pipeline([
+        transport.input(),
+        stt,
+        agent,
+        tts,
+        transport.output(),
+    ])
+
+    task = PipelineTask(pipeline)
+    runner = PipelineRunner(handle_sigint=False)
+
+    logger.info(
+        "Starting presenter retention pipeline session=%s call=%s",
+        session_id, call_sid,
+    )
+
+    # Send the greeting after the Twilio stream connects.
+    # Twilio plays the <Say> intro (~6s), rings the presenter (~3s),
+    # then establishes the WebSocket stream. We need to wait for all
+    # of that before pushing audio.
+    async def _send_greeting():
+        await asyncio.sleep(10.0)
+        await agent.send_greeting()
+
+    asyncio.create_task(_send_greeting())
+
+    await runner.run(task)
+    logger.info("Presenter retention pipeline finished session=%s", session_id)
+
+
+def run_presenter_pipeline_sync(
+    *,
+    stream_sid: str,
+    call_sid: str,
+    session_id: str,
+    validated_fields: dict[str, str] | None = None,
+) -> None:
+    """Synchronous wrapper for ``run_presenter_pipeline``."""
+    asyncio.run(run_presenter_pipeline(
+        stream_sid=stream_sid,
+        call_sid=call_sid,
+        session_id=session_id,
+        validated_fields=validated_fields,
     ))

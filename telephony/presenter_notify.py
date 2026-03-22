@@ -133,6 +133,7 @@ def call_presenter_for_info(
         '<?xml version="1.0" encoding="UTF-8"?>'
         "<Response>"
         f'<Say voice="Polly.Joanna">{intro}</Say>'
+        "<Pause length=\"1\"/>"
         f'<Gather input="speech" timeout="15" speechTimeout="auto" '
         f'action="{escape(action_url)}" method="POST">'
         f'<Say voice="Polly.Joanna">{safe_prompt}</Say>'
@@ -204,6 +205,52 @@ def bridge_to_conference(
         "conference_name": conference_name,
         "presenter_call_sid": presenter_call.sid,
     }
+
+
+def call_presenter_to_agent(
+    *,
+    session_id: str,
+    stream_url: str,
+    validated_fields: dict[str, str],
+) -> str:
+    """Call the presenter and connect them to the retention agent via WebSocket stream.
+
+    Instead of a conference bridge, this connects the presenter's audio to a
+    Pipecat pipeline running a conversational LLM agent.
+    Returns the Twilio call SID.
+    """
+    _require_twilio_voice()
+    from twilio.rest import Client
+    from xml.sax.saxutils import escape
+
+    client = Client(config_models.TWILIO_ACCOUNT_SID, config_models.TWILIO_AUTH_TOKEN)
+
+    reason = validated_fields.get("cancellation_reason", "not specified")
+    safe_stream = escape(stream_url)
+
+    twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response>"
+        '<Say voice="Polly.Joanna">'
+        f"Connecting you now. The customer is canceling because: {escape(reason)}. "
+        "You will be speaking with our A.I. retention specialist, Alex."
+        "</Say>"
+        "<Connect>"
+        f'<Stream url="{safe_stream}" />'
+        "</Connect>"
+        "</Response>"
+    )
+
+    call = client.calls.create(
+        to=config_models.PRESENTER_PHONE_NUMBER,
+        from_=config_models.TWILIO_AGENT_NUMBER,
+        twiml=twiml,
+    )
+    logger.info(
+        "Presenter connected to retention agent sid=%s session=%s stream=%s",
+        call.sid, session_id, stream_url,
+    )
+    return call.sid
 
 
 def notify_completion(

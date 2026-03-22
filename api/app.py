@@ -241,12 +241,10 @@ def create_app():
         return tree
 
     # WebSocket reverse-proxy: forwards Twilio Media Stream to local Pipecat WS
-    @app.websocket("/ws/twilio-stream")
-    async def twilio_stream_proxy(ws: WebSocket):
-        """Proxy Twilio Media Stream WS to the local Pipecat WebSocket server."""
-        import os
-        pipecat_port = int(os.environ.get("PIPELINE_WS_PORT", "8765"))
+    async def _ws_proxy(ws: WebSocket, pipecat_port: int) -> None:
+        """Shared bidirectional WebSocket proxy to a local Pipecat backend."""
         pipecat_url = f"ws://127.0.0.1:{pipecat_port}"
+        _logger.info("Twilio stream proxy connecting to backend port %s", pipecat_port)
         await ws.accept()
 
         # Pipecat WS server starts after the Twilio call is placed — retry for up to 10s
@@ -303,6 +301,23 @@ def create_app():
                 await ws.close()
             except Exception:
                 pass
+
+    # Route wrappers — both go through the shared _ws_proxy helper.
+    # Using path-based routing so both work through a single ngrok tunnel.
+
+    @app.websocket("/ws/twilio-stream")
+    async def twilio_stream_proxy(ws: WebSocket):
+        """Proxy Twilio Media Stream to the IVR navigation pipeline (port 8765)."""
+        import os
+        port = int(os.environ.get("PIPELINE_WS_PORT", "8765"))
+        await _ws_proxy(ws, port)
+
+    @app.websocket("/ws/twilio-stream/presenter")
+    async def presenter_stream_proxy(ws: WebSocket):
+        """Proxy Twilio Media Stream to the presenter retention agent pipeline (port 8766)."""
+        import os
+        port = int(os.environ.get("PRESENTER_PIPELINE_WS_PORT", "8766"))
+        await _ws_proxy(ws, port)
 
     # Static dashboard — mount after all routes so API paths take priority
     _static_dir = Path(__file__).resolve().parent.parent / "dashboard" / "static"
