@@ -185,6 +185,8 @@ def run_demo(
     host: str = "0.0.0.0",
     port: int = 8000,
     bland_to: str = "",
+    scenario: str = "cancel_service",
+    tree: str = "acme_corp",
 ) -> None:
     """Launch the full demo stack: API + dashboard + Bland outbound call."""
     import uvicorn
@@ -202,6 +204,10 @@ def run_demo(
     base_url = f"http://127.0.0.1:{port}"
     dashboard_url = os.environ.get("DASHBOARD_URL", f"{base_url}/dashboard")
     webhook_url = BLAND_WEBHOOK_URL or f"{base_url}/bland/webhook"
+
+    logger.info("Demo scenario=%s  tree=%s", scenario, tree)
+    os.environ.setdefault("DEMO_SCENARIO", scenario)
+    os.environ.setdefault("DEMO_TREE", tree)
 
     # 1. Start uvicorn in a background thread
     uvi_cfg = uvicorn.Config("api.app:app", host=host, port=port, log_level="warning")
@@ -285,6 +291,16 @@ def main() -> None:
         help="Phone number for Bland AI to call (or set BLAND_CALL_TO env var)",
     )
     parser.add_argument(
+        "--scenario",
+        default="cancel_service",
+        help="Demo scenario ID (default: cancel_service)",
+    )
+    parser.add_argument(
+        "--tree",
+        default="acme_corp",
+        help="Call tree ID for the demo (default: acme_corp)",
+    )
+    parser.add_argument(
         "--host", default="0.0.0.0", help="API server bind address (default: 0.0.0.0)"
     )
     parser.add_argument(
@@ -300,6 +316,8 @@ def main() -> None:
             host=args.host,
             port=args.port,
             bland_to=args.bland_to,
+            scenario=args.scenario,
+            tree=args.tree,
         )
     elif args.api:
         run_api_server(host=args.host, port=args.port, reload=args.reload)
