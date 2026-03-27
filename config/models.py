@@ -5,6 +5,7 @@ import os
 # Eigen API endpoints
 EIGEN_BASE_URL = os.environ.get("EIGEN_BASE_URL", "https://api-web.eigenai.com/api/v1")
 EIGEN_GENERATE_URL = os.environ.get("EIGEN_GENERATE_URL", f"{EIGEN_BASE_URL.rstrip('/')}/generate")
+EIGEN_UPLOAD_URL = os.environ.get("EIGEN_UPLOAD_URL", f"{EIGEN_BASE_URL.rstrip('/')}/generate/upload")
 
 # Eigen AI model identifiers
 HIGGS_ASR_MODEL = os.environ.get("HIGGS_ASR_MODEL", "higgs_asr_3")
@@ -32,9 +33,19 @@ MAX_TURNS_BEFORE_STALL = 8
 MULTI_FIELD_BATCH_SIZE = 3
 
 # Session and privacy settings
+SESSION_STORE_BACKEND = (
+    os.environ.get("SESSION_STORE_BACKEND", "sqlite").strip().lower() or "sqlite"
+)
 SESSION_DB_PATH = os.environ.get("SESSION_DB_PATH", "call_center_sessions.sqlite3")
-SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", str(24 * 60 * 60)))  # default 24h
-TRANSCRIPT_RETENTION_ENABLED = os.environ.get("TRANSCRIPT_RETENTION_ENABLED", "false").lower() == "true"
+AEROSPIKE_HOSTS = os.environ.get("AEROSPIKE_HOSTS", "127.0.0.1:3000")
+AEROSPIKE_NAMESPACE = os.environ.get("AEROSPIKE_NAMESPACE", "test")
+AEROSPIKE_SET = os.environ.get("AEROSPIKE_SET", "sessions")
+SESSION_TTL_SECONDS = int(
+    os.environ.get("SESSION_TTL_SECONDS", str(24 * 60 * 60))
+)  # default 24h
+TRANSCRIPT_RETENTION_ENABLED = (
+    os.environ.get("TRANSCRIPT_RETENTION_ENABLED", "false").lower() == "true"
+)
 TRANSCRIPT_CONTEXT_TURNS = int(os.environ.get("TRANSCRIPT_CONTEXT_TURNS", "6"))
 REDACT_FIELD_HINTS = (
     "account",
@@ -49,6 +60,7 @@ REDACT_FIELD_HINTS = (
 DEMO_BRAND_NAME = os.environ.get("DEMO_BRAND_NAME", "Callit-Dev")
 DEMO_TTS_VOICE = os.environ.get("DEMO_TTS_VOICE", "Linda")
 RETENTION_AGENT_VOICE = os.environ.get("RETENTION_AGENT_VOICE", "Daniel")
+DEMO_VOICE_ID = os.environ.get("DEMO_VOICE_ID", "")
 
 # Twilio integration
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
@@ -57,14 +69,12 @@ TWILIO_IVR_NUMBER = os.environ.get("TWILIO_IVR_NUMBER", "")
 TWILIO_AGENT_NUMBER = os.environ.get("TWILIO_AGENT_NUMBER", "")
 PRESENTER_PHONE_NUMBER = os.environ.get("PRESENTER_PHONE_NUMBER", "")
 
-# Auth0 (JWT / API auth)
+# Auth0 integration
+AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "false").lower() in ("1", "true", "yes")
 AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "")
 AUTH0_AUDIENCE = os.environ.get("AUTH0_AUDIENCE", "")
 AUTH0_CLIENT_ID = os.environ.get("AUTH0_CLIENT_ID", "")
 AUTH0_CLIENT_SECRET = os.environ.get("AUTH0_CLIENT_SECRET", "")
-
-# Bland AI (send_call / org API key)
-BLAND_API_KEY = os.environ.get("BLAND_API_KEY", "")
 
 # Scripted cancel_service demo: force presenter gather + retention bridge (default on).
 DEMO_FORCE_HUMAN_FLOWS = os.environ.get("DEMO_FORCE_HUMAN_FLOWS", "1").lower() in (
@@ -72,6 +82,14 @@ DEMO_FORCE_HUMAN_FLOWS = os.environ.get("DEMO_FORCE_HUMAN_FLOWS", "1").lower() i
     "true",
     "yes",
 )
+
+# Bland AI integration
+BLAND_API_KEY = os.environ.get("BLAND_API_KEY", "")
+BLAND_WEBHOOK_URL = os.environ.get("BLAND_WEBHOOK_URL", "")
+BLAND_VOICE = os.environ.get("BLAND_VOICE", "maya")
+BLAND_MODEL = os.environ.get("BLAND_MODEL", "enhanced")
+BLAND_PATHWAY_ID = os.environ.get("BLAND_PATHWAY_ID", "")
+BLAND_MAX_DURATION = int(os.environ.get("BLAND_MAX_DURATION", "300"))
 
 # Public base URL for transcript links in SMS (e.g. ngrok). Falls back to NGROK_URL.
 _NGROK = os.environ.get("NGROK_URL", "").strip().rstrip("/")

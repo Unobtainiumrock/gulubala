@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 from client.eigen import generate_form
-from config.models import DEMO_TTS_VOICE, HIGGS_TTS_MODEL
+from config.models import DEMO_TTS_VOICE, DEMO_VOICE_ID, HIGGS_TTS_MODEL
 
 
 _DATE_PATTERNS = (
@@ -84,13 +84,12 @@ def _replace_emails(text: str) -> str:
             .replace("_", " underscore ")
             .replace("-", " dash ")
         )
-        spoken_domain = (
-            domain.replace(".", " dot ")
-            .replace("-", " dash ")
-        )
+        spoken_domain = domain.replace(".", " dot ").replace("-", " dash ")
         return _collapse_whitespace(f"{spoken_local} at {spoken_domain}")
 
-    return re.sub(r"\b([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b", _render, text)
+    return re.sub(
+        r"\b([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b", _render, text
+    )
 
 
 def _replace_labeled_identifiers(text: str) -> str:
@@ -102,12 +101,19 @@ def _replace_labeled_identifiers(text: str) -> str:
 
     def _order(match: re.Match[str]) -> str:
         token = match.group(1)
-        if any(char.isalpha() for char in token) and any(char.isdigit() for char in token):
+        if any(char.isalpha() for char in token) and any(
+            char.isdigit() for char in token
+        ):
             return f"Order {_spell_identifier(token)}"
         return match.group(0)
 
     rewritten = re.sub(r"\bCase ID:\s*([A-Za-z0-9-]+)", _case_id, text)
-    rewritten = re.sub(r"\b(tracking number is\s+)([A-Za-z0-9-]+)", _tracking, rewritten, flags=re.IGNORECASE)
+    rewritten = re.sub(
+        r"\b(tracking number is\s+)([A-Za-z0-9-]+)",
+        _tracking,
+        rewritten,
+        flags=re.IGNORECASE,
+    )
     rewritten = re.sub(r"\bOrder\s+([A-Za-z0-9-]{6,20})\b", _order, rewritten)
     rewritten = re.sub(r"\bUPS\b", "U P S", rewritten)
     return rewritten
@@ -169,8 +175,10 @@ def build_ssml(text: str) -> str:
     return _build_ssml_from_spoken_text(spoken_text)
 
 
-def build_voice_response(session_id: str, text: str, voice: str = DEMO_TTS_VOICE) -> dict[str, Any] | None:
-    """Return a voice-friendly envelope with normalized text and Boson payload."""
+def build_voice_response(
+    session_id: str, text: str, voice: str = DEMO_TTS_VOICE
+) -> dict[str, Any] | None:
+    """Return a voice-friendly envelope with normalized text and voice provider payload."""
     if not text.strip():
         return None
 
@@ -184,7 +192,7 @@ def build_voice_response(session_id: str, text: str, voice: str = DEMO_TTS_VOICE
         "text": text,
         "spoken_text": spoken_text,
         "ssml": ssml,
-        "boson": {
+        "voice_provider": {
             "type": "assistant_output",
             "session_id": session_id,
             "text": spoken_text,
@@ -195,15 +203,29 @@ def build_voice_response(session_id: str, text: str, voice: str = DEMO_TTS_VOICE
     }
 
 
-def synthesize_speech(text: str, voice: str = DEMO_TTS_VOICE) -> bytes:
-    """Generate WAV audio for a short assistant response."""
+def synthesize_speech(
+    text: str,
+    voice: str = DEMO_TTS_VOICE,
+    voice_id: str | None = None,
+) -> bytes:
+    """Generate WAV audio for a short assistant response.
+
+    When *voice_id* is provided (from a cloned voice upload) it is sent
+    instead of the named *voice* string.
+    """
     normalized_text = normalize_tts_text(text)
     sampling = json.dumps({"temperature": 0.85, "top_p": 0.95, "top_k": 50})
+    voice_kwargs: dict[str, str] = {}
+    effective_voice_id = voice_id or DEMO_VOICE_ID
+    if effective_voice_id:
+        voice_kwargs["voice_id"] = effective_voice_id
+    else:
+        voice_kwargs["voice"] = voice
     return generate_form(
         model=HIGGS_TTS_MODEL,
         text=normalized_text,
-        voice=voice,
         stream="false",
         sampling=sampling,
         expect_json=False,
+        **voice_kwargs,
     )

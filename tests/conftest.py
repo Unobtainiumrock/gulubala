@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
+import os
+
+# Before any import that pulls client.eigen (load_dotenv), pin auth off so HTTP
+# e2e tests are not gated by JWT when .env enables Auth0.
+os.environ["AUTH_ENABLED"] = "false"
+
 import re
 import sys
 from pathlib import Path
@@ -104,6 +111,19 @@ def make_service(monkeypatch: pytest.MonkeyPatch, intent: str, confidence: float
         summary_builder=lambda payload: "Escalation summary.",
     )
     return CallCenterService(InMemorySessionStore(), engine=engine)
+
+
+@pytest.fixture(autouse=True)
+def _sync_auth_config_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reload config.models each test so AUTH_* matches env after auth tests toggle it."""
+
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.delenv("AUTH0_DOMAIN", raising=False)
+    monkeypatch.delenv("AUTH0_AUDIENCE", raising=False)
+    import config.models as config_models
+
+    importlib.reload(config_models)
+    yield
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-.PHONY: help setup run demo demo-local ngrok stop dev test check-env
+.PHONY: help setup run demo demo-local ngrok stop dev test clone-voice check-env
 
 PYTHON   ?= python3
 PORT_API ?= 8000
@@ -6,7 +6,7 @@ PORT_UI  ?= 3001
 SCENARIO ?= cancel_service
 TREE     ?= acme_corp
 
-NGROK_GLOBAL_CONFIG ?= $(shell ngrok config check 2>/dev/null | grep -oP '(?<=at ).*' || echo "$(HOME)/.config/ngrok/ngrok.yml")
+NGROK_GLOBAL_CONFIG ?= $(shell ngrok config check 2>/dev/null | sed -n 's/.*at //p' || echo "$(HOME)/.config/ngrok/ngrok.yml")
 NGROK_PID_FILE      := /tmp/gulubala-ngrok.pid
 NEXTJS_PID_FILE     := /tmp/gulubala-nextjs.pid
 
@@ -40,7 +40,7 @@ run: ## One command: start ngrok + Next.js dashboard + run demo (Ctrl+C cleans u
 	@cd dashboard-ui && npm run dev > /dev/null 2>&1 & echo $$! > $(NEXTJS_PID_FILE)
 	@# Start ngrok in the background
 	@echo "[run] Starting ngrok tunnel (port $(PORT_API))..."
-	@ngrok start --all --config $(NGROK_GLOBAL_CONFIG) --config ngrok.yml \
+	@ngrok start --config "$(NGROK_GLOBAL_CONFIG)" --config ngrok.yml api \
 		--log=stdout --log-level=warn & echo $$! > $(NGROK_PID_FILE)
 	@# Wait up to 15 s for the tunnel to appear
 	@echo "[run] Waiting for ngrok tunnel..."
@@ -114,7 +114,7 @@ stop: ## Kill any leftover ngrok / uvicorn / Next.js on demo ports
 # ---------------------------------------------------------------------------
 
 ngrok: ## Start ngrok tunnel in foreground (API only)
-	ngrok start --all --config $(NGROK_GLOBAL_CONFIG) --config ngrok.yml
+	ngrok start --config "$(NGROK_GLOBAL_CONFIG)" --config ngrok.yml api
 
 demo: ## Run demo (expects ngrok already running)
 	@eval $$($(PYTHON) scripts/detect_ngrok.py $(PORT_API) 2>/dev/null) && \
@@ -141,6 +141,13 @@ dashboard-build: ## Production build of React dashboard
 
 test: ## Run the test suite
 	$(PYTHON) -m pytest tests/ -v
+
+clone-voice: ## Upload a voice sample and print voice_id (usage: make clone-voice FILE=sample.wav)
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make clone-voice FILE=path/to/sample.wav"; \
+		exit 1; \
+	fi
+	$(PYTHON) scripts/clone_voice.py '$(FILE)'
 
 check-env: ## Verify .env credentials are loaded
 	@$(PYTHON) -c "\
