@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 try:
-    from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+    from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
     from starlette.staticfiles import StaticFiles
 except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is absent
+    Depends = None
     FastAPI = None
     HTTPException = RuntimeError
     WebSocket = None
@@ -19,7 +20,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is a
 
 from calltree.registry import get_call_tree
 from calltree.transcript_store import get_transcript
-from config.models import SESSION_DB_PATH
+import config.models as config_models
 from dashboard.ws import get_manager, router as ws_router
 from ivr.routes import router as ivr_router
 from contracts.api import (
@@ -45,17 +46,44 @@ from contracts.api import (
     SubmitFieldRequest,
     SubmitFieldResponse,
 )
+from services.aerospike_store import AerospikeSessionStore
 from services.orchestrator import CallCenterService
-from services.session_store import SQLiteSessionStore
+from services.session_store import InMemorySessionStore, SQLiteSessionStore
 
 _SERVICE: CallCenterService | None = None
+
+
+def build_session_store():
+    """Build the configured session-store backend for the API service."""
+
+    backend = config_models.SESSION_STORE_BACKEND
+    ttl_seconds = config_models.SESSION_TTL_SECONDS
+
+    if backend == "memory":
+        return InMemorySessionStore(ttl_seconds=ttl_seconds)
+    if backend == "sqlite":
+        return SQLiteSessionStore(
+            config_models.SESSION_DB_PATH,
+            ttl_seconds=ttl_seconds,
+        )
+    if backend == "aerospike":
+        return AerospikeSessionStore(
+            hosts=config_models.AEROSPIKE_HOSTS,
+            namespace=config_models.AEROSPIKE_NAMESPACE,
+            set_name=config_models.AEROSPIKE_SET,
+            ttl_seconds=ttl_seconds,
+        )
+    raise ValueError(
+        f"Unsupported SESSION_STORE_BACKEND '{backend}'. "
+        "Expected one of: memory, sqlite, aerospike."
+    )
 
 
 def get_service() -> CallCenterService:
     global _SERVICE
     if _SERVICE is None:
         _SERVICE = CallCenterService(
-            SQLiteSessionStore(SESSION_DB_PATH),
+            build_session_store(),
             event_publisher=get_manager().publish_sync,
         )
     return _SERVICE
@@ -75,7 +103,10 @@ def create_app():
             "FastAPI is not installed. Install requirements to run the HTTP API."
         )
 
+    from auth.middleware import verify_jwt
+
     app = FastAPI(title="LLM Call Center Agent", version="0.1.0", lifespan=_lifespan)
+    protected_route = {"dependencies": [Depends(verify_jwt)]}
 
     from starlette.middleware.cors import CORSMiddleware
     app.add_middleware(
@@ -143,7 +174,7 @@ def create_app():
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.post("/route-intent", response_model=RouteIntentResponse)
+    @app.post("/route-intent", response_model=RouteIntentResponse, **protected_route)
     def route_intent(request: RouteIntentRequest):
         try:
             service = get_service()
@@ -152,7 +183,7 @@ def create_app():
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/plan-next-step", response_model=PlanNextStepResponse)
+    @app.post("/plan-next-step", response_model=PlanNextStepResponse, **protected_route)
     def plan_next_step(request: PlanNextStepRequest):
         try:
             service = get_service()
@@ -161,7 +192,7 @@ def create_app():
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.post("/submit-field", response_model=SubmitFieldResponse)
+    @app.post("/submit-field", response_model=SubmitFieldResponse, **protected_route)
     def submit_field(request: SubmitFieldRequest):
         try:
             service = get_service()
@@ -175,7 +206,7 @@ def create_app():
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.post("/dispatch-action", response_model=DispatchActionResponse)
+    @app.post("/dispatch-action", response_model=DispatchActionResponse, **protected_route)
     def dispatch_action(request: DispatchActionRequest):
         try:
             service = get_service()
@@ -193,7 +224,7 @@ def create_app():
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.post("/submit-document", response_model=SubmitDocumentResponse)
+    @app.post("/submit-document", response_model=SubmitDocumentResponse, **protected_route)
     def submit_document(request: SubmitDocumentRequest):
         try:
             service = get_service()
