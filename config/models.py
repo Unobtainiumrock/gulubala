@@ -34,8 +34,12 @@ MULTI_FIELD_BATCH_SIZE = 3
 
 # Session and privacy settings
 SESSION_DB_PATH = os.environ.get("SESSION_DB_PATH", "call_center_sessions.sqlite3")
-SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", str(24 * 60 * 60)))  # default 24h
-TRANSCRIPT_RETENTION_ENABLED = os.environ.get("TRANSCRIPT_RETENTION_ENABLED", "false").lower() == "true"
+SESSION_TTL_SECONDS = int(
+    os.environ.get("SESSION_TTL_SECONDS", str(24 * 60 * 60))
+)  # default 24h
+TRANSCRIPT_RETENTION_ENABLED = (
+    os.environ.get("TRANSCRIPT_RETENTION_ENABLED", "false").lower() == "true"
+)
 TRANSCRIPT_CONTEXT_TURNS = int(os.environ.get("TRANSCRIPT_CONTEXT_TURNS", "6"))
 REDACT_FIELD_HINTS = (
     "account",
@@ -64,6 +68,14 @@ DEMO_FORCE_HUMAN_FLOWS = os.environ.get("DEMO_FORCE_HUMAN_FLOWS", "1").lower() i
     "true",
     "yes",
 )
+
+# Bland AI integration
+BLAND_API_KEY = os.environ.get("BLAND_API_KEY", "")
+BLAND_WEBHOOK_URL = os.environ.get("BLAND_WEBHOOK_URL", "")
+BLAND_VOICE = os.environ.get("BLAND_VOICE", "maya")
+BLAND_MODEL = os.environ.get("BLAND_MODEL", "enhanced")
+BLAND_PATHWAY_ID = os.environ.get("BLAND_PATHWAY_ID", "")
+BLAND_MAX_DURATION = int(os.environ.get("BLAND_MAX_DURATION", "300"))
 
 # Public base URL for transcript links in SMS (e.g. ngrok). Falls back to NGROK_URL.
 _NGROK = os.environ.get("NGROK_URL", "").strip().rstrip("/")

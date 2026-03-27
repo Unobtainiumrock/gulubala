@@ -79,23 +79,7 @@ class EscalationSummaryResponse(BaseModel):
     state: dict[str, Any]
 
 
-class VoiceEventRequest(BaseModel):
-    """Raw Boson webhook payload forwarded to the voice handler.
-
-    When ``audio_data`` (base64-encoded WAV) is provided with a
-    transcript-type event, the API runs ASR to produce the transcript
-    before forwarding to the voice handler.
-    """
-    session_id: str | None = None
-    call_id: str | None = None
-    type: str
-    text: str | None = None
-    utterance: str | None = None
-    digits: str | None = None
-    audio_data: str | None = None
-
-
-class BosonAssistantOutput(BaseModel):
+class VoiceAssistantOutput(BaseModel):
     type: Literal["assistant_output"] = "assistant_output"
     session_id: str
     text: str
@@ -108,15 +92,7 @@ class VoiceResponseEnvelope(BaseModel):
     text: str
     spoken_text: str
     ssml: str | None = None
-    boson: BosonAssistantOutput | None = None
-
-
-class VoiceEventResponse(BaseModel):
-    session_id: str
-    message: str
-    resolved: bool = False
-    escalated: bool = False
-    voice_response: VoiceResponseEnvelope | None = None
+    voice_provider: VoiceAssistantOutput | None = None
 
 
 class SubmitDocumentRequest(BaseModel):
@@ -187,3 +163,15 @@ class DemoTurnResponse(BaseModel):
     scenario_id: str | None = None
     action_result: str | None = None
     voice_response: VoiceResponseEnvelope | None = None
+
+
+class BlandToolRequest(BaseModel):
+    call_id: str
+    utterance: str | None = None
+
+
+class BlandToolResponse(BaseModel):
+    message: str
+    resolved: bool = False
+    escalated: bool = False
+    session_id: str | None = None

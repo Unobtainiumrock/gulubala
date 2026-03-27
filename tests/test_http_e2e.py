@@ -25,6 +25,7 @@ from tests.conftest import make_service
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _client_for(monkeypatch: pytest.MonkeyPatch, intent: str) -> TestClient:
     service = make_service(monkeypatch, intent)
     app_mod._SERVICE = service
@@ -34,6 +35,7 @@ def _client_for(monkeypatch: pytest.MonkeyPatch, intent: str) -> TestClient:
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
+
 
 class TestHealth:
     def test_returns_ok(self, monkeypatch):
@@ -47,12 +49,15 @@ class TestHealth:
 # Password Reset – full HTTP flow
 # ---------------------------------------------------------------------------
 
+
 class TestPasswordResetHTTP:
     def test_full_flow(self, monkeypatch):
         client = _client_for(monkeypatch, "password_reset")
         sid = "pw-http-1"
 
-        route = client.post("/route-intent", json={"session_id": sid, "utterance": "I can't log in."})
+        route = client.post(
+            "/route-intent", json={"session_id": sid, "utterance": "I can't log in."}
+        )
         assert route.status_code == 200
         assert route.json()["intent"] == "password_reset"
 
@@ -60,15 +65,25 @@ class TestPasswordResetHTTP:
         assert plan.status_code == 200
         assert "account_id" in plan.json()["next_fields"]
 
-        sub1 = client.post("/submit-field", json={
-            "session_id": sid, "field_name": "account_id", "value": "12345678",
-        })
+        sub1 = client.post(
+            "/submit-field",
+            json={
+                "session_id": sid,
+                "field_name": "account_id",
+                "value": "12345678",
+            },
+        )
         assert sub1.status_code == 200
         assert sub1.json()["accepted"] is True
 
-        sub2 = client.post("/submit-field", json={
-            "session_id": sid, "field_name": "verification_code", "value": "654321",
-        })
+        sub2 = client.post(
+            "/submit-field",
+            json={
+                "session_id": sid,
+                "field_name": "verification_code",
+                "value": "654321",
+            },
+        )
         assert sub2.status_code == 200
         assert sub2.json()["accepted"] is True
 
@@ -81,14 +96,26 @@ class TestPasswordResetHTTP:
         client = _client_for(monkeypatch, "password_reset")
         sid = "pw-http-2"
 
-        client.post("/route-intent", json={"session_id": sid, "utterance": "password reset"})
-        client.post("/submit-field", json={
-            "session_id": sid, "field_name": "account_id", "value": "12345678",
-        })
+        client.post(
+            "/route-intent", json={"session_id": sid, "utterance": "password reset"}
+        )
+        client.post(
+            "/submit-field",
+            json={
+                "session_id": sid,
+                "field_name": "account_id",
+                "value": "12345678",
+            },
+        )
 
-        bad = client.post("/submit-field", json={
-            "session_id": sid, "field_name": "verification_code", "value": "12",
-        })
+        bad = client.post(
+            "/submit-field",
+            json={
+                "session_id": sid,
+                "field_name": "verification_code",
+                "value": "12",
+            },
+        )
         assert bad.status_code == 200
         assert bad.json()["accepted"] is False
         assert bad.json()["validation_error"] is not None
@@ -98,12 +125,16 @@ class TestPasswordResetHTTP:
 # Billing Dispute – full HTTP flow
 # ---------------------------------------------------------------------------
 
+
 class TestBillingDisputeHTTP:
     def test_full_flow(self, monkeypatch):
         client = _client_for(monkeypatch, "billing_dispute")
         sid = "bill-http-1"
 
-        route = client.post("/route-intent", json={"session_id": sid, "utterance": "I want to dispute a charge."})
+        route = client.post(
+            "/route-intent",
+            json={"session_id": sid, "utterance": "I want to dispute a charge."},
+        )
         assert route.status_code == 200
         assert route.json()["intent"] == "billing_dispute"
 
@@ -114,9 +145,14 @@ class TestBillingDisputeHTTP:
             ("dispute_reason", "duplicate charge"),
         ]
         for name, value in fields:
-            resp = client.post("/submit-field", json={
-                "session_id": sid, "field_name": name, "value": value,
-            })
+            resp = client.post(
+                "/submit-field",
+                json={
+                    "session_id": sid,
+                    "field_name": name,
+                    "value": value,
+                },
+            )
             assert resp.status_code == 200
             assert resp.json()["accepted"] is True, f"{name} rejected: {resp.json()}"
 
@@ -130,16 +166,24 @@ class TestBillingDisputeHTTP:
 # Order Status – full HTTP flow
 # ---------------------------------------------------------------------------
 
+
 class TestOrderStatusHTTP:
     def test_full_flow(self, monkeypatch):
         client = _client_for(monkeypatch, "order_status")
         sid = "ord-http-1"
 
-        client.post("/route-intent", json={"session_id": sid, "utterance": "Where is my order?"})
+        client.post(
+            "/route-intent", json={"session_id": sid, "utterance": "Where is my order?"}
+        )
 
-        sub = client.post("/submit-field", json={
-            "session_id": sid, "field_name": "order_number", "value": "ORD-123456",
-        })
+        sub = client.post(
+            "/submit-field",
+            json={
+                "session_id": sid,
+                "field_name": "order_number",
+                "value": "ORD-123456",
+            },
+        )
         assert sub.status_code == 200
         assert sub.json()["accepted"] is True
 
@@ -153,21 +197,29 @@ class TestOrderStatusHTTP:
 # Update Profile – full HTTP flow
 # ---------------------------------------------------------------------------
 
+
 class TestUpdateProfileHTTP:
     def test_full_flow(self, monkeypatch):
         client = _client_for(monkeypatch, "update_profile")
         sid = "prof-http-1"
 
-        client.post("/route-intent", json={"session_id": sid, "utterance": "Update my profile."})
+        client.post(
+            "/route-intent", json={"session_id": sid, "utterance": "Update my profile."}
+        )
 
         for name, value in [
             ("account_number", "12345678"),
             ("field_to_update", "email"),
             ("new_value", "new@example.com"),
         ]:
-            resp = client.post("/submit-field", json={
-                "session_id": sid, "field_name": name, "value": value,
-            })
+            resp = client.post(
+                "/submit-field",
+                json={
+                    "session_id": sid,
+                    "field_name": name,
+                    "value": value,
+                },
+            )
             assert resp.status_code == 200
             assert resp.json()["accepted"] is True, f"{name} rejected"
 
@@ -181,21 +233,29 @@ class TestUpdateProfileHTTP:
 # Cancel Service – full HTTP flow
 # ---------------------------------------------------------------------------
 
+
 class TestCancelServiceHTTP:
     def test_full_flow_confirmed(self, monkeypatch):
         client = _client_for(monkeypatch, "cancel_service")
         sid = "cancel-http-1"
 
-        client.post("/route-intent", json={"session_id": sid, "utterance": "Cancel my service."})
+        client.post(
+            "/route-intent", json={"session_id": sid, "utterance": "Cancel my service."}
+        )
 
         for name, value in [
             ("account_number", "12345678"),
             ("cancellation_reason", "moving"),
             ("confirm_cancel", "yes"),
         ]:
-            resp = client.post("/submit-field", json={
-                "session_id": sid, "field_name": name, "value": value,
-            })
+            resp = client.post(
+                "/submit-field",
+                json={
+                    "session_id": sid,
+                    "field_name": name,
+                    "value": value,
+                },
+            )
             assert resp.status_code == 200
             assert resp.json()["accepted"] is True, f"{name} rejected"
 
@@ -208,10 +268,29 @@ class TestCancelServiceHTTP:
         client = _client_for(monkeypatch, "cancel_service")
         sid = "cancel-http-2"
 
-        client.post("/route-intent", json={"session_id": sid, "utterance": "Cancel my service."})
-        client.post("/submit-field", json={"session_id": sid, "field_name": "account_number", "value": "12345678"})
-        client.post("/submit-field", json={"session_id": sid, "field_name": "cancellation_reason", "value": "moving"})
-        client.post("/submit-field", json={"session_id": sid, "field_name": "confirm_cancel", "value": "no"})
+        client.post(
+            "/route-intent", json={"session_id": sid, "utterance": "Cancel my service."}
+        )
+        client.post(
+            "/submit-field",
+            json={
+                "session_id": sid,
+                "field_name": "account_number",
+                "value": "12345678",
+            },
+        )
+        client.post(
+            "/submit-field",
+            json={
+                "session_id": sid,
+                "field_name": "cancellation_reason",
+                "value": "moving",
+            },
+        )
+        client.post(
+            "/submit-field",
+            json={"session_id": sid, "field_name": "confirm_cancel", "value": "no"},
+        )
 
         dispatch = client.post("/dispatch-action", json={"session_id": sid})
         assert dispatch.status_code == 200
@@ -223,6 +302,7 @@ class TestCancelServiceHTTP:
 # Negative / edge-case paths
 # ---------------------------------------------------------------------------
 
+
 class TestNegativePaths:
     def test_plan_unknown_session_returns_404(self, monkeypatch):
         client = _client_for(monkeypatch, "password_reset")
@@ -231,16 +311,23 @@ class TestNegativePaths:
 
     def test_submit_field_unknown_session_returns_404(self, monkeypatch):
         client = _client_for(monkeypatch, "password_reset")
-        resp = client.post("/submit-field", json={
-            "session_id": "nonexistent", "field_name": "account_id", "value": "123",
-        })
+        resp = client.post(
+            "/submit-field",
+            json={
+                "session_id": "nonexistent",
+                "field_name": "account_id",
+                "value": "123",
+            },
+        )
         assert resp.status_code == 404
 
     def test_dispatch_missing_fields_returns_blocked(self, monkeypatch):
         client = _client_for(monkeypatch, "password_reset")
         sid = "block-1"
 
-        client.post("/route-intent", json={"session_id": sid, "utterance": "password reset"})
+        client.post(
+            "/route-intent", json={"session_id": sid, "utterance": "password reset"}
+        )
         dispatch = client.post("/dispatch-action", json={"session_id": sid})
         assert dispatch.status_code == 200
         assert dispatch.json()["status"] == "blocked"
@@ -258,28 +345,14 @@ class TestNegativePaths:
 
     def test_submit_document_unknown_session_returns_404(self, monkeypatch):
         client = _client_for(monkeypatch, "password_reset")
-        resp = client.post("/submit-document", json={
-            "session_id": "nonexistent", "document_text": "some text",
-        })
+        resp = client.post(
+            "/submit-document",
+            json={
+                "session_id": "nonexistent",
+                "document_text": "some text",
+            },
+        )
         assert resp.status_code == 404
-
-    def test_voice_event_missing_session_id_422(self, monkeypatch):
-        client = _client_for(monkeypatch, "password_reset")
-        resp = client.post("/voice-event", json={"type": "transcript"})
-        assert resp.status_code == 422
-
-    def test_voice_event_accepts_call_id_alias(self, monkeypatch):
-        client = _client_for(monkeypatch, "password_reset")
-        resp = client.post("/voice-event", json={
-            "type": "transcript",
-            "call_id": "voice-call-alias-1",
-            "text": "I need to reset my password",
-        })
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["session_id"] == "voice-call-alias-1"
-        assert payload["resolved"] is False
-        assert payload["voice_response"]["boson"]["session_id"] == "voice-call-alias-1"
 
     def test_concurrent_sessions_independent(self, monkeypatch):
         client = _client_for(monkeypatch, "password_reset")
@@ -287,12 +360,22 @@ class TestNegativePaths:
         client.post("/route-intent", json={"session_id": "s1", "utterance": "reset"})
         client.post("/route-intent", json={"session_id": "s2", "utterance": "reset"})
 
-        client.post("/submit-field", json={
-            "session_id": "s1", "field_name": "account_id", "value": "11111111",
-        })
-        client.post("/submit-field", json={
-            "session_id": "s2", "field_name": "account_id", "value": "22222222",
-        })
+        client.post(
+            "/submit-field",
+            json={
+                "session_id": "s1",
+                "field_name": "account_id",
+                "value": "11111111",
+            },
+        )
+        client.post(
+            "/submit-field",
+            json={
+                "session_id": "s2",
+                "field_name": "account_id",
+                "value": "22222222",
+            },
+        )
 
         plan1 = client.post("/plan-next-step", json={"session_id": "s1"}).json()
         plan2 = client.post("/plan-next-step", json={"session_id": "s2"}).json()
