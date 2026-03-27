@@ -54,6 +54,23 @@
   .conn-dot.connected { background: #198754; }
   .conn-dot.error { background: #dc3545; }
 
+  /* ── Sponsor badges ── */
+  .sponsor-badges {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 12px;
+    letter-spacing: 0.3px;
+  }
+  .badge-bland { background: #1a3a5c; color: #58a6ff; border: 1px solid #264f78; }
+  .badge-aerospike { background: #1a3d1a; color: #6fdc8c; border: 1px solid #2d5a2d; }
+  .badge-auth0 { background: #3d2a1a; color: #f5a623; border: 1px solid #5a3d1a; }
+
   /* ── Banners ── */
   .banner {
     display: none;
@@ -197,6 +214,11 @@
 <!-- Header -->
 <div class="header">
   <h1>Call Center Dashboard</h1>
+  <div class="sponsor-badges">
+    <span class="badge badge-bland">Bland AI</span>
+    <span class="badge badge-aerospike">Aerospike</span>
+    <span class="badge badge-auth0">Auth0</span>
+  </div>
   <select id="session-select">
     <option value="">-- Select a session --</option>
   </select>
