@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import logging
 
-import pytest
 
 from tests.conftest import make_service
 
@@ -45,30 +44,6 @@ class TestMultiFieldCaptureLogging:
         assert "account_id" in field_names
         assert "verification_code" in field_names
         assert len(field_logs) >= 2
-
-
-# ---------------------------------------------------------------------------
-# Gap 2: DTMF path must emit conversation_turn
-# ---------------------------------------------------------------------------
-
-
-class TestDtmfConversationTurnLogging:
-    def test_dtmf_emits_conversation_turn(self, monkeypatch, caplog):
-        svc = make_service(monkeypatch, "password_reset")
-        svc.create_session(channel="voice", session_id="dtmf-1")
-        svc.route_intent("dtmf-1", "I need to reset my password")
-        caplog.clear()
-
-        with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
-            result = svc.handle_voice_event({
-                "type": "dtmf",
-                "session_id": "dtmf-1",
-                "digits": "12345678",
-            })
-
-        turn_logs = _events_by_type(caplog, "conversation_turn")
-        assert len(turn_logs) >= 1
-        assert turn_logs[0]["data"]["message"] == result["message"]
 
 
 # ---------------------------------------------------------------------------

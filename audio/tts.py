@@ -84,13 +84,12 @@ def _replace_emails(text: str) -> str:
             .replace("_", " underscore ")
             .replace("-", " dash ")
         )
-        spoken_domain = (
-            domain.replace(".", " dot ")
-            .replace("-", " dash ")
-        )
+        spoken_domain = domain.replace(".", " dot ").replace("-", " dash ")
         return _collapse_whitespace(f"{spoken_local} at {spoken_domain}")
 
-    return re.sub(r"\b([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b", _render, text)
+    return re.sub(
+        r"\b([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b", _render, text
+    )
 
 
 def _replace_labeled_identifiers(text: str) -> str:
@@ -102,12 +101,19 @@ def _replace_labeled_identifiers(text: str) -> str:
 
     def _order(match: re.Match[str]) -> str:
         token = match.group(1)
-        if any(char.isalpha() for char in token) and any(char.isdigit() for char in token):
+        if any(char.isalpha() for char in token) and any(
+            char.isdigit() for char in token
+        ):
             return f"Order {_spell_identifier(token)}"
         return match.group(0)
 
     rewritten = re.sub(r"\bCase ID:\s*([A-Za-z0-9-]+)", _case_id, text)
-    rewritten = re.sub(r"\b(tracking number is\s+)([A-Za-z0-9-]+)", _tracking, rewritten, flags=re.IGNORECASE)
+    rewritten = re.sub(
+        r"\b(tracking number is\s+)([A-Za-z0-9-]+)",
+        _tracking,
+        rewritten,
+        flags=re.IGNORECASE,
+    )
     rewritten = re.sub(r"\bOrder\s+([A-Za-z0-9-]{6,20})\b", _order, rewritten)
     rewritten = re.sub(r"\bUPS\b", "U P S", rewritten)
     return rewritten
@@ -169,8 +175,10 @@ def build_ssml(text: str) -> str:
     return _build_ssml_from_spoken_text(spoken_text)
 
 
-def build_voice_response(session_id: str, text: str, voice: str = DEMO_TTS_VOICE) -> dict[str, Any] | None:
-    """Return a voice-friendly envelope with normalized text and Boson payload."""
+def build_voice_response(
+    session_id: str, text: str, voice: str = DEMO_TTS_VOICE
+) -> dict[str, Any] | None:
+    """Return a voice-friendly envelope with normalized text and voice provider payload."""
     if not text.strip():
         return None
 
@@ -184,7 +192,7 @@ def build_voice_response(session_id: str, text: str, voice: str = DEMO_TTS_VOICE
         "text": text,
         "spoken_text": spoken_text,
         "ssml": ssml,
-        "boson": {
+        "voice_provider": {
             "type": "assistant_output",
             "session_id": session_id,
             "text": spoken_text,

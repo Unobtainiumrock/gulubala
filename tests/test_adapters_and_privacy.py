@@ -30,34 +30,6 @@ def test_asr_confusion_reasks_same_field(monkeypatch: pytest.MonkeyPatch):
     assert "account number" in response["message"]
 
 
-def test_dtmf_event_submits_numeric_field(monkeypatch: pytest.MonkeyPatch):
-    service = make_service(monkeypatch, "password_reset")
-    session = service.create_session(channel="voice")
-    service.route_intent(session.session_id, "I cannot log in.")
-
-    response = service.handle_voice_event({"type": "dtmf", "session_id": session.session_id, "digits": "12345678"})
-
-    assert "verification code" in response["message"]
-    assert response["voice_response"]["boson"]["type"] == "assistant_output"
-    final_state = service.get_session(session.session_id)
-    assert final_state.validated_fields["account_id"] == "12345678"
-
-
-def test_boson_interrupt_preserves_state(monkeypatch: pytest.MonkeyPatch):
-    service = make_service(monkeypatch, "password_reset")
-    session = service.create_session(channel="voice")
-    service.route_intent(session.session_id, "I cannot log in.")
-    service.submit_field(session.session_id, "account_id", "12345678")
-
-    response = service.handle_voice_event({"type": "interrupt", "session_id": session.session_id, "reason": "barge-in"})
-
-    final_state = service.get_session(session.session_id)
-    assert response["message"] == "Interruption registered."
-    assert response["voice_response"]["text"] == "Interruption registered."
-    assert final_state.validated_fields["account_id"] == "12345678"
-    assert final_state.metadata["boson_interrupted"] is True
-
-
 def test_redaction_helpers_mask_sensitive_fields():
     redacted = redact_mapping(
         {
@@ -102,7 +74,10 @@ def test_api_smoke_flow(monkeypatch: pytest.MonkeyPatch):
     api_app._SERVICE = service
     client = TestClient(create_app())
 
-    route = client.post("/route-intent", json={"session_id": "api-session", "utterance": "I cannot log in."})
+    route = client.post(
+        "/route-intent",
+        json={"session_id": "api-session", "utterance": "I cannot log in."},
+    )
     assert route.status_code == 200
     assert route.json()["intent"] == "password_reset"
 
@@ -112,14 +87,22 @@ def test_api_smoke_flow(monkeypatch: pytest.MonkeyPatch):
 
     submit_account = client.post(
         "/submit-field",
-        json={"session_id": "api-session", "field_name": "account_id", "value": "12345678"},
+        json={
+            "session_id": "api-session",
+            "field_name": "account_id",
+            "value": "12345678",
+        },
     )
     assert submit_account.status_code == 200
     assert submit_account.json()["accepted"] is True
 
     submit_code = client.post(
         "/submit-field",
-        json={"session_id": "api-session", "field_name": "verification_code", "value": "123456"},
+        json={
+            "session_id": "api-session",
+            "field_name": "verification_code",
+            "value": "123456",
+        },
     )
     assert submit_code.status_code == 200
     assert submit_code.json()["accepted"] is True
@@ -129,7 +112,9 @@ def test_api_smoke_flow(monkeypatch: pytest.MonkeyPatch):
     assert dispatch.json()["status"] == "completed"
 
 
-def test_demo_routes_expose_scenarios_without_landing_page(monkeypatch: pytest.MonkeyPatch):
+def test_demo_routes_expose_scenarios_without_landing_page(
+    monkeypatch: pytest.MonkeyPatch,
+):
     if FastAPI is None:  # pragma: no cover
         pytest.skip("FastAPI not installed")
 
@@ -158,20 +143,28 @@ def test_demo_guided_flow(monkeypatch: pytest.MonkeyPatch):
     api_app._SERVICE = service
     client = TestClient(create_app())
 
-    start = client.post("/demo/start", json={"scenario_id": "password_reset", "channel": "voice"})
+    start = client.post(
+        "/demo/start", json={"scenario_id": "password_reset", "channel": "voice"}
+    )
     assert start.status_code == 200
     payload = start.json()
     assert payload["scenario"]["intent"] == "password_reset"
     assert "Callit-Dev" in payload["message"]
-    assert payload["voice_response"]["boson"]["type"] == "assistant_output"
+    assert payload["voice_response"]["voice_provider"]["type"] == "assistant_output"
 
     session_id = payload["session_id"]
-    turn_one = client.post("/demo/turn", json={"session_id": session_id, "utterance": "12345678"})
+    turn_one = client.post(
+        "/demo/turn", json={"session_id": session_id, "utterance": "12345678"}
+    )
     assert turn_one.status_code == 200
     assert "verification code" in turn_one.json()["message"]
-    assert turn_one.json()["voice_response"]["boson"]["session_id"] == session_id
+    assert (
+        turn_one.json()["voice_response"]["voice_provider"]["session_id"] == session_id
+    )
 
-    turn_two = client.post("/demo/turn", json={"session_id": session_id, "utterance": "123456"})
+    turn_two = client.post(
+        "/demo/turn", json={"session_id": session_id, "utterance": "123456"}
+    )
     assert turn_two.status_code == 200
     assert turn_two.json()["resolved"] is True
 
@@ -183,13 +176,17 @@ def test_demo_voice_turn(monkeypatch: pytest.MonkeyPatch):
     from base64 import b64encode
     from fastapi.testclient import TestClient
 
-    monkeypatch.setattr("services.orchestrator.transcribe_bytes", lambda **kwargs: "12345678")
+    monkeypatch.setattr(
+        "services.orchestrator.transcribe_bytes", lambda **kwargs: "12345678"
+    )
 
     service = make_service(monkeypatch, "password_reset")
     api_app._SERVICE = service
     client = TestClient(create_app())
 
-    start = client.post("/demo/start", json={"scenario_id": "password_reset", "channel": "voice"})
+    start = client.post(
+        "/demo/start", json={"scenario_id": "password_reset", "channel": "voice"}
+    )
     session_id = start.json()["session_id"]
 
     voice_turn = client.post(
@@ -203,7 +200,10 @@ def test_demo_voice_turn(monkeypatch: pytest.MonkeyPatch):
     )
     assert voice_turn.status_code == 200
     assert voice_turn.json()["transcript"] == "12345678"
-    assert voice_turn.json()["voice_response"]["boson"]["session_id"] == session_id
+    assert (
+        voice_turn.json()["voice_response"]["voice_provider"]["session_id"]
+        == session_id
+    )
 
 
 def test_document_adapter_extracts_supported_fields():

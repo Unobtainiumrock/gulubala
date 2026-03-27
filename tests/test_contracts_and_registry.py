@@ -7,7 +7,12 @@ from contracts.prompts import (
     IvrClassificationResponse,
     parse_contract,
 )
-from audio.tts import build_ssml, build_voice_response, normalize_tts_text, realize_spoken_text
+from audio.tts import (
+    build_ssml,
+    build_voice_response,
+    normalize_tts_text,
+    realize_spoken_text,
+)
 from validation.validators import (
     get_validator,
     normalize_digit_tokens,
@@ -27,7 +32,10 @@ def test_workflow_registry_loads_canonical_schema():
     assert workflow is not None
     assert workflow.field_priority[0] == "account_number"
     assert workflow.get_field("charge_amount").document_extractable is True
-    assert any(condition.type == "document_mismatch" for condition in workflow.escalation_conditions)
+    assert any(
+        condition.type == "document_mismatch"
+        for condition in workflow.escalation_conditions
+    )
     assert "cancel_service" in list_intents()
 
 
@@ -82,7 +90,9 @@ def test_validators_normalize_values():
     assert parse_numeric("$5,000.55") == 5000.55
     assert get_validator("zip_code")("94105") == (True, "94105")
     assert normalize_digit_tokens("my account ID is 1 2 3 4 5 6 7 8") == "12345678"
-    assert validate_account_number("my account ID is one two three four five six seven eight") == (True, "12345678")
+    assert validate_account_number(
+        "my account ID is one two three four five six seven eight"
+    ) == (True, "12345678")
     assert validate_verification_code("one two three four five six") == (True, "123456")
 
 
@@ -93,7 +103,7 @@ def test_tts_text_normalization_rewrites_unfriendly_phrases():
     assert "1 2 3 4 5 6" in normalized
 
 
-def test_voice_response_envelope_includes_ssml_and_boson_payload():
+def test_voice_response_envelope_includes_ssml_and_voice_provider_payload():
     envelope = build_voice_response(
         "voice-session-1",
         "Please say your account ID and then enter 123456.",
@@ -104,9 +114,9 @@ def test_voice_response_envelope_includes_ssml_and_boson_payload():
     assert "account number" in envelope["spoken_text"]
     assert "1 2 3 4 5 6" in envelope["spoken_text"]
     assert envelope["ssml"] == build_ssml(envelope["text"])
-    assert envelope["boson"]["type"] == "assistant_output"
-    assert envelope["boson"]["session_id"] == "voice-session-1"
-    assert envelope["boson"]["text"] == envelope["spoken_text"]
+    assert envelope["voice_provider"]["type"] == "assistant_output"
+    assert envelope["voice_provider"]["session_id"] == "voice-session-1"
+    assert envelope["voice_provider"]["text"] == envelope["spoken_text"]
 
 
 def test_spoken_text_realizer_handles_dates_and_identifiers():
@@ -122,35 +132,45 @@ def test_spoken_text_realizer_handles_dates_and_identifiers():
     assert "tracking number is 1 Z 9 9 9 A A 1 0 1 2 3 4 5 6 7 8 4" in spoken
 
 
-def test_voice_response_falls_back_to_canonical_text_on_realizer_error(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(tts_mod, "realize_spoken_text", lambda text: (_ for _ in ()).throw(RuntimeError("boom")))
+def test_voice_response_falls_back_to_canonical_text_on_realizer_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        tts_mod,
+        "realize_spoken_text",
+        lambda text: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
 
     envelope = build_voice_response("voice-session-2", "Please continue.")
 
     assert envelope is not None
     assert envelope["spoken_text"] == "Please continue."
     assert "Please continue." in envelope["ssml"]
-    assert envelope["boson"]["text"] == "Please continue."
+    assert envelope["voice_provider"]["text"] == "Please continue."
 
 
 # --- DTMF flag guardrails (DEV-14) ---
 
-DTMF_COMPATIBLE_VALIDATORS = frozenset({
-    "account_number",
-    "verification_code",
-    "zip_code",
-    "order_number",
-    "phone",
-})
+DTMF_COMPATIBLE_VALIDATORS = frozenset(
+    {
+        "account_number",
+        "verification_code",
+        "zip_code",
+        "order_number",
+        "phone",
+    }
+)
 
-DTMF_INCOMPATIBLE_VALIDATORS = frozenset({
-    "non_empty",
-    "date",
-    "currency",
-    "email",
-    "yes_no",
-    "profile_field",
-})
+DTMF_INCOMPATIBLE_VALIDATORS = frozenset(
+    {
+        "non_empty",
+        "date",
+        "currency",
+        "email",
+        "yes_no",
+        "profile_field",
+    }
+)
 
 
 def _all_fields():

@@ -1,13 +1,13 @@
 # LLM Call Center Agent
 
-Python call-center agent with a local CLI, a FastAPI server, and Boson-compatible voice event handling. The project uses Eigen AI for chat, ASR, and optional TTS.
+Python call-center agent with a local CLI, a FastAPI server, and voice event handling (Bland AI). The project uses Eigen AI for chat, ASR, and optional TTS.
 
 ## What It Does
 
 - Runs text conversations from the terminal
 - Accepts audio files, transcribes them with Eigen ASR, and continues the dialogue in the CLI
 - Exposes an HTTP API for workflow routing, field capture, action dispatch, and document submission
-- Accepts Boson-style voice events on `/voice-event`
+- Accepts voice events on `/voice-event`
 
 Supported workflows include:
 
@@ -112,9 +112,9 @@ You can change the bind address and port:
 python main.py --api --host 0.0.0.0 --port 8000
 ```
 
-## Run With Voice / Boson
+## Run With Voice
 
-Start the API server first, then send Boson-compatible events to `/voice-event`.
+Start the API server first, then send voice events to `/voice-event`.
 
 Basic transcript event:
 
@@ -140,7 +140,7 @@ curl -X POST http://127.0.0.1:8000/voice-event \
   }'
 ```
 
-Supported Boson-style event types:
+Supported voice event types:
 
 - `transcript` or `user_transcript`
 - `dtmf`
@@ -153,7 +153,7 @@ Voice responses now include a `voice_response` envelope alongside the plain `mes
 
 - `spoken_text`: TTS-normalized text
 - `ssml`: light SSML with pacing hints
-- `boson`: a Boson-ready `assistant_output` payload with `text`, `ssml`, and `voice`
+- `voice_provider`: a voice provider `assistant_output` payload with `text`, `ssml`, and `voice`
 
 The voice envelope is derived deterministically from the canonical `message`. It does not run a second free-form LLM rewrite step, and if the voice formatter fails the system falls back to the original message text.
 
@@ -385,7 +385,7 @@ curl -X POST http://127.0.0.1:8000/voice-event \
 Expected result:
 
 - responses include both `message` and `voice_response`
-- `voice_response` contains `spoken_text`, `ssml`, and a Boson-ready `assistant_output` payload
+- `voice_response` contains `spoken_text`, `ssml`, and a `voice_provider` assistant_output payload
 
 ### 5. Demo escalation / human handoff
 
@@ -441,4 +441,4 @@ Use `/demo/voice-turn` if you want to drive the seeded scenario with recorded au
 - [`main.py`](main.py): CLI and API entry point
 - [`api/app.py`](api/app.py): FastAPI routes
 - [`config/models.py`](config/models.py): environment-backed settings
-- [`boson/adapter.py`](boson/adapter.py): Boson event normalization
+- [`voice/adapter.py`](voice/adapter.py): Voice event normalization
