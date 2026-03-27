@@ -2,11 +2,13 @@
 
 PYTHON   ?= python3
 PORT_API ?= 8000
+PORT_UI  ?= 3001
 SCENARIO ?= cancel_service
 TREE     ?= acme_corp
 
 NGROK_GLOBAL_CONFIG ?= $(shell ngrok config check 2>/dev/null | grep -oP '(?<=at ).*' || echo "$(HOME)/.config/ngrok/ngrok.yml")
 NGROK_PID_FILE      := /tmp/gulubala-ngrok.pid
+NEXTJS_PID_FILE     := /tmp/gulubala-nextjs.pid
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -19,14 +21,23 @@ setup: ## Install Python dependencies
 # Core commands
 # ---------------------------------------------------------------------------
 
-run: ## One command: start ngrok + wait for tunnel + run demo (Ctrl+C cleans up)
-	@# Kill anything occupying our port first
+run: ## One command: start ngrok + Next.js dashboard + run demo (Ctrl+C cleans up)
+	@# Kill anything occupying our ports first
 	@pid=$$(lsof -ti :$(PORT_API) 2>/dev/null); \
 	if [ -n "$$pid" ]; then \
 		echo "[run] Killing stale process on port $(PORT_API) (pid $$pid)"; \
 		kill $$pid 2>/dev/null || true; \
 		sleep 0.5; \
 	fi
+	@pid=$$(lsof -ti :$(PORT_UI) 2>/dev/null); \
+	if [ -n "$$pid" ]; then \
+		echo "[run] Killing stale process on port $(PORT_UI) (pid $$pid)"; \
+		kill $$pid 2>/dev/null || true; \
+		sleep 0.5; \
+	fi
+	@# Start the Next.js dashboard in the background
+	@echo "[run] Starting Next.js dashboard (port $(PORT_UI))..."
+	@cd dashboard-ui && npm run dev > /dev/null 2>&1 & echo $$! > $(NEXTJS_PID_FILE)
 	@# Start ngrok in the background
 	@echo "[run] Starting ngrok tunnel (port $(PORT_API))..."
 	@ngrok start --all --config $(NGROK_GLOBAL_CONFIG) --config ngrok.yml \
@@ -40,9 +51,18 @@ run: ## One command: start ngrok + wait for tunnel + run demo (Ctrl+C cleans up)
 		fi; \
 		sleep 1; \
 	done
+	@# Wait for the Next.js dev server to be ready (up to 30 s)
+	@echo "[run] Waiting for Next.js dashboard..."
+	@for i in $$(seq 1 30); do \
+		if curl -s -o /dev/null http://localhost:$(PORT_UI) 2>/dev/null; then \
+			break; \
+		fi; \
+		sleep 1; \
+	done
 	@# Detect final URL and launch the demo
 	@eval $$($(PYTHON) scripts/detect_ngrok.py $(PORT_API) 2>/dev/null) && \
 		export PUBLIC_API_BASE_URL="$$NGROK_URL" && \
+		export DASHBOARD_URL="http://localhost:$(PORT_UI)" && \
 		if [ -z "$$NGROK_URL" ]; then \
 			echo "[run] WARNING: ngrok tunnel not detected. Dashboard-only mode."; \
 			echo "  NGROK_URL=$$NGROK_URL"; \
@@ -51,6 +71,7 @@ run: ## One command: start ngrok + wait for tunnel + run demo (Ctrl+C cleans up)
 			echo "  NGROK_URL=$$NGROK_URL"; \
 			echo "  PUBLIC_API_BASE_URL=$$PUBLIC_API_BASE_URL"; \
 		fi && \
+		echo "  DASHBOARD_URL=$$DASHBOARD_URL" && \
 		echo "" && \
 		$(PYTHON) main.py --demo --scenario $(SCENARIO) --tree $(TREE) --port $(PORT_API); \
 		EXIT_CODE=$$?; \
@@ -59,18 +80,32 @@ run: ## One command: start ngrok + wait for tunnel + run demo (Ctrl+C cleans up)
 			kill $$(cat $(NGROK_PID_FILE)) 2>/dev/null || true; \
 			rm -f $(NGROK_PID_FILE); \
 		fi; \
+		if [ -f $(NEXTJS_PID_FILE) ]; then \
+			kill $$(cat $(NEXTJS_PID_FILE)) 2>/dev/null || true; \
+			rm -f $(NEXTJS_PID_FILE); \
+		fi; \
 		exit $$EXIT_CODE
 
-stop: ## Kill any leftover ngrok / uvicorn on demo port
+stop: ## Kill any leftover ngrok / uvicorn / Next.js on demo ports
 	@pid=$$(lsof -ti :$(PORT_API) 2>/dev/null); \
 	if [ -n "$$pid" ]; then \
 		echo "[stop] Killing pid $$pid on port $(PORT_API)"; \
+		kill $$pid 2>/dev/null || true; \
+	fi
+	@pid=$$(lsof -ti :$(PORT_UI) 2>/dev/null); \
+	if [ -n "$$pid" ]; then \
+		echo "[stop] Killing pid $$pid on port $(PORT_UI)"; \
 		kill $$pid 2>/dev/null || true; \
 	fi
 	@if [ -f $(NGROK_PID_FILE) ]; then \
 		echo "[stop] Killing ngrok (pid $$(cat $(NGROK_PID_FILE)))"; \
 		kill $$(cat $(NGROK_PID_FILE)) 2>/dev/null || true; \
 		rm -f $(NGROK_PID_FILE); \
+	fi
+	@if [ -f $(NEXTJS_PID_FILE) ]; then \
+		echo "[stop] Killing Next.js (pid $$(cat $(NEXTJS_PID_FILE)))"; \
+		kill $$(cat $(NEXTJS_PID_FILE)) 2>/dev/null || true; \
+		rm -f $(NEXTJS_PID_FILE); \
 	fi
 	@echo "[stop] Done."
 

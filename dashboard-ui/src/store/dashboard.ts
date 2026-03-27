@@ -220,15 +220,21 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       `/calltree/${treeId}`,
       `${directBase}/calltree/${treeId}`,
     ];
-    for (const url of targets) {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) continue;
-        set({ callTree: await res.json() });
-        return;
-      } catch {
-        /* try next */
+    const MAX_ATTEMPTS = 30;
+    const RETRY_MS = 2000;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      for (const url of targets) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          set({ callTree: await res.json() });
+          return;
+        } catch {
+          /* try next */
+        }
       }
+      // Backend not ready yet — wait and retry
+      await new Promise((r) => setTimeout(r, RETRY_MS));
     }
   },
 }));

@@ -229,7 +229,7 @@ def run_demo(
     logger = logging.getLogger("demo")
 
     base_url = f"http://127.0.0.1:{port}"
-    dashboard_url = f"{base_url}/dashboard"
+    dashboard_url = os.environ.get("DASHBOARD_URL", f"{base_url}/dashboard")
 
     # 1. Start uvicorn in a background thread
     uvi_cfg = uvicorn.Config("api.app:app", host=host, port=port, log_level="warning")
