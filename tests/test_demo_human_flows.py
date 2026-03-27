@@ -1,0 +1,85 @@
+"""Tests for deterministic demo presenter / escalation overrides."""
+
+from __future__ import annotations
+
+from contracts.prompts import IvrActionResponse
+from calltree.demo_human_flows import apply_demo_human_flow_overrides
+
+
+def _wait() -> IvrActionResponse:
+    return IvrActionResponse(action="wait", reasoning="llm")
+
+
+def test_disabled_returns_llm_action():
+    action = apply_demo_human_flow_overrides(
+        enabled=False,
+        transcript_text="What is the main reason you would like to cancel today?",
+        classification_category="info_request",
+        available_fields={"account_number": "1"},
+        escalated=False,
+        action=_wait(),
+    )
+    assert action.action == "wait"
+
+
+def test_cancel_reason_triggers_request_info():
+    action = apply_demo_human_flow_overrides(
+        enabled=True,
+        transcript_text="Thank you. What is the main reason you would like to cancel today?",
+        classification_category="info_request",
+        available_fields={"account_number": "12345678", "confirm_cancel": "yes"},
+        escalated=False,
+        action=_wait(),
+    )
+    assert action.action == "request_info"
+    assert action.requested_field == "cancellation_reason"
+    assert action.field_prompt
+
+
+def test_skip_request_info_when_reason_already_known():
+    action = apply_demo_human_flow_overrides(
+        enabled=True,
+        transcript_text="What is the main reason you would like to cancel today?",
+        classification_category="info_request",
+        available_fields={"cancellation_reason": "too expensive"},
+        escalated=False,
+        action=_wait(),
+    )
+    assert action.action == "wait"
+
+
+def test_retention_line_triggers_escalate():
+    action = apply_demo_human_flow_overrides(
+        enabled=True,
+        transcript_text="Hi, this is Alex from Acme retention. What can I do to keep you?",
+        classification_category="menu",
+        available_fields={"account_number": "1"},
+        escalated=False,
+        action=_wait(),
+    )
+    assert action.action == "escalate"
+    assert action.escalation_reason
+
+
+def test_human_agent_category_triggers_escalate():
+    action = apply_demo_human_flow_overrides(
+        enabled=True,
+        transcript_text="Hello there",
+        classification_category="human_agent",
+        available_fields={},
+        escalated=False,
+        action=_wait(),
+    )
+    assert action.action == "escalate"
+
+
+def test_no_override_when_already_escalated():
+    action = apply_demo_human_flow_overrides(
+        enabled=True,
+        transcript_text="Hi, this is Alex from Acme retention.",
+        classification_category="human_agent",
+        available_fields={},
+        escalated=True,
+        action=_wait(),
+    )
+    assert action.action == "wait"

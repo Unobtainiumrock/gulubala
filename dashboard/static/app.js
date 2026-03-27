@@ -7,6 +7,9 @@ const state = {
   reconnectTimer: null,
   reconnectDelay: 1000,
   calltreeNetwork: null,
+  calltreeNodes: null,          // vis.DataSet — node colors updated for IVR position
+  calltreeNodeDefaults: null,   // Map(nodeId → vis color object for inactive state)
+  highlightedCallTreeNodeId: null,
   workflowNetwork: null,
   workflowNodes: null,          // vis.DataSet
   workflowEdges: null,          // vis.DataSet
@@ -88,7 +91,19 @@ function renderCallTree(tree) {
     }
   }
 
+  state.calltreeNodeDefaults = new Map();
+  for (const n of tree.nodes) {
+    const isDtmf = n.input_type === 'dtmf';
+    state.calltreeNodeDefaults.set(n.id, {
+      background: isDtmf ? '#21262d' : '#1a3a5c',
+      border: isDtmf ? '#30363d' : '#2a5a8c',
+      highlight: { background: '#0d6efd', border: '#0a58ca' },
+    });
+  }
+
   const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+  state.calltreeNodes = data.nodes;
+  state.highlightedCallTreeNodeId = null;
   const options = {
     layout: {
       hierarchical: {
@@ -104,6 +119,35 @@ function renderCallTree(tree) {
   };
 
   state.calltreeNetwork = new vis.Network(container, data, options);
+}
+
+/** Highlight the IVR node the agent is at; pass null to reset to defaults. */
+function highlightCallTreeNode(nodeId) {
+  if (!state.calltreeNodes || !state.calltreeNodeDefaults) return;
+  state.highlightedCallTreeNodeId = nodeId || null;
+  const ids = state.calltreeNodes.getIds();
+  for (const id of ids) {
+    const def = state.calltreeNodeDefaults.get(id);
+    if (!def) continue;
+    const active = nodeId && id === nodeId;
+    state.calltreeNodes.update({
+      id,
+      color: active
+        ? {
+            background: '#0d6efd',
+            border: '#58a6ff',
+            highlight: def.highlight,
+          }
+        : {
+            background: def.background,
+            border: def.border,
+            highlight: def.highlight,
+          },
+    });
+  }
+  if (state.calltreeNetwork) {
+    state.calltreeNetwork.selectNodes(nodeId ? [nodeId] : []);
+  }
 }
 
 // ── Workflow Progress Graph ───────────────────────────────────────────────
@@ -279,7 +323,16 @@ function connectGlobal() {
     const event = JSON.parse(e.data);
     trackSession(event.session_id);
 
-    // If we're viewing this session, handle the event
+    // Per-session WS already delivers events for the selected session; avoid duplicates.
+    const sessionChannelActive =
+      state.sessionWs &&
+      state.sessionWs.readyState === WebSocket.OPEN &&
+      event.session_id === state.activeSessionId;
+
+    if (sessionChannelActive) {
+      return;
+    }
+
     if (event.session_id === state.activeSessionId) {
       handleEvent(event);
     }
@@ -313,6 +366,7 @@ function connectSession(sessionId) {
 
   ws.onmessage = (e) => {
     const event = JSON.parse(e.data);
+    trackSession(event.session_id);
     handleEvent(event);
   };
 
@@ -360,6 +414,7 @@ $select.addEventListener('change', () => {
 
   hideBanners();
   clearTranscript();
+  highlightCallTreeNode(null);
 
   // Reset workflow graph
   state.workflowNodes = null;
@@ -398,7 +453,17 @@ function handleEvent(event) {
     case 'completed':
       handleCompleted(sid, sess, event);
       break;
+    case 'ivr_calltree_position':
+      handleIvrCallTreePosition(sid, event);
+      break;
   }
+}
+
+function handleIvrCallTreePosition(sid, event) {
+  if (sid !== state.activeSessionId) return;
+  const nid = event.node_id;
+  if (!nid || !state.calltreeNodes || !state.calltreeNodes.get(nid)) return;
+  highlightCallTreeNode(nid);
 }
 
 function handleNodeEntered(sid, sess, event) {

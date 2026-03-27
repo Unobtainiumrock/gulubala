@@ -114,7 +114,7 @@ def run_api_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = False
 # ---------------------------------------------------------------------------
 
 def _build_demo_task_description(scenario: str, fields: dict[str, str]) -> str:
-    return (
+    base = (
         f"Demo scenario '{scenario}'. Navigate the Acme Corp phone tree to complete the intent. "
         f"Pre-filled CRM fields (use these values; do not invent different ones): {fields!r}. "
         "If the IVR asks for a value you do not have under those keys, use action request_info "
@@ -122,6 +122,14 @@ def _build_demo_task_description(scenario: str, fields: dict[str, str]) -> str:
         "If a live human agent is speaking on the call (not a recording), use action escalate "
         "so they can be conferenced in with the account holder."
     )
+    if scenario == "cancel_service" and "cancellation_reason" not in fields:
+        base += (
+            " IMPORTANT: You do not have cancellation_reason. When the IVR asks why the customer "
+            "wants to cancel, you must use request_info with requested_field 'cancellation_reason' "
+            "(do not type a DTMF sequence for that prompt). When a retention specialist speaks "
+            "live on the line, use escalate to bridge the account holder."
+        )
+    return base
 
 
 _DEMO_FIELD_DEFAULTS: dict[str, dict[str, str]] = {
