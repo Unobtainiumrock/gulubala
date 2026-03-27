@@ -33,7 +33,13 @@ MAX_TURNS_BEFORE_STALL = 8
 MULTI_FIELD_BATCH_SIZE = 3
 
 # Session and privacy settings
+SESSION_STORE_BACKEND = (
+    os.environ.get("SESSION_STORE_BACKEND", "sqlite").strip().lower() or "sqlite"
+)
 SESSION_DB_PATH = os.environ.get("SESSION_DB_PATH", "call_center_sessions.sqlite3")
+AEROSPIKE_HOSTS = os.environ.get("AEROSPIKE_HOSTS", "127.0.0.1:3000")
+AEROSPIKE_NAMESPACE = os.environ.get("AEROSPIKE_NAMESPACE", "test")
+AEROSPIKE_SET = os.environ.get("AEROSPIKE_SET", "sessions")
 SESSION_TTL_SECONDS = int(
     os.environ.get("SESSION_TTL_SECONDS", str(24 * 60 * 60))
 )  # default 24h
@@ -61,6 +67,11 @@ TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_IVR_NUMBER = os.environ.get("TWILIO_IVR_NUMBER", "")
 TWILIO_AGENT_NUMBER = os.environ.get("TWILIO_AGENT_NUMBER", "")
 PRESENTER_PHONE_NUMBER = os.environ.get("PRESENTER_PHONE_NUMBER", "")
+
+# Auth0 integration
+AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "false").lower() in ("1", "true", "yes")
+AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "")
+AUTH0_AUDIENCE = os.environ.get("AUTH0_AUDIENCE", "")
 
 # Scripted cancel_service demo: force presenter gather + retention bridge (default on).
 DEMO_FORCE_HUMAN_FLOWS = os.environ.get("DEMO_FORCE_HUMAN_FLOWS", "1").lower() in (
