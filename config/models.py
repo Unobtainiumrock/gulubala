@@ -58,6 +58,11 @@ TWILIO_IVR_NUMBER = os.environ.get("TWILIO_IVR_NUMBER", "")
 TWILIO_AGENT_NUMBER = os.environ.get("TWILIO_AGENT_NUMBER", "")
 PRESENTER_PHONE_NUMBER = os.environ.get("PRESENTER_PHONE_NUMBER", "")
 
+# Auth0 integration
+AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "false").lower() in ("1", "true", "yes")
+AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "")
+AUTH0_AUDIENCE = os.environ.get("AUTH0_AUDIENCE", "")
+
 # Scripted cancel_service demo: force presenter gather + retention bridge (default on).
 DEMO_FORCE_HUMAN_FLOWS = os.environ.get("DEMO_FORCE_HUMAN_FLOWS", "1").lower() in (
     "1",
